@@ -1,27 +1,39 @@
 // ============================================================
 //  DOMAIN: TIMING — BPM, tick↔ms, time signatures
 // ============================================================
-// bpmS is module-local: it is only read by t2ms/ms2t/compBPM, all of
-// which live in this file. No external code needs to see it.
-//
-// Time signatures are cached via the generic cache.js abstraction.
-// Mutators outside this file call invalidate(['timeSignatures']) OR the
-// legacy compat wrapper invalidateTSCache() — both have identical effect.
+// BPM segments and TS are cached via the generic cache.js abstraction.
+// Mutators call invalidate(['tempo'|'timeSignatures']) — or the legacy
+// compat wrappers compBPM/invalidateTSCache, which forward identically.
 
 import { TPB } from './constants.js';
 import { D } from './state.js';
 import { defineCache, get, invalidate } from './cache.js';
 
 // ---- BPM segments cache ----
-// Built by compBPM(); rebuilt whenever D.tempo changes.
-let bpmS = [];
+// Rebuilt whenever D.tempo changes. Produces a sorted array of
+// { st: tick, ms: cumulative ms at that tick, bpm, mpt: ms-per-tick }.
+defineCache('bpmSegments', ['tempo'], () => {
+  if (!D.tempo || D.tempo.length === 0) D.tempo = [{tick: 0, bpm: 120}];
+  const segs = [];
+  const s = [...D.tempo].sort((a, b) => a.tick - b.tick);
+  let ms = 0;
+  for (let i = 0; i < s.length; i++) {
+    const e = s[i], mpt = 60000 / (e.bpm * TPB);
+    if (i > 0) ms += (e.tick - s[i - 1].tick) * segs[i - 1].mpt;
+    segs.push({st: e.tick, ms, bpm: e.bpm, mpt});
+  }
+  return segs;
+});
 
-// ---- Time signature cache (generic) ----
+// ---- Time signature cache ----
 defineCache('timeSignaturesSorted', ['timeSignatures'], () =>
   [...D.timeSignatures].sort((a, b) => a.tick - b.tick)
 );
 
-/** Legacy compat: forward to generic invalidate. */
+/** Legacy compat: force bpmSegments rebuild by invalidating tempo dep. */
+export function compBPM() { invalidate(['tempo']); }
+
+/** Legacy compat: same for time signatures. */
 export function invalidateTSCache() { invalidate(['timeSignatures']); }
 
 export function getSortedTS() { return get('timeSignaturesSorted'); }
@@ -29,25 +41,15 @@ export function getSortedTS() { return get('timeSignaturesSorted'); }
 // ============================================================
 //  BPM / TIMING
 // ============================================================
-export function compBPM() {
-  if (!D.tempo || D.tempo.length === 0) D.tempo = [{tick: 0, bpm: 120}];
-  bpmS = [];
-  const s = [...D.tempo].sort((a, b) => a.tick - b.tick);
-  let ms = 0;
-  for (let i = 0; i < s.length; i++) {
-    const e = s[i], mpt = 60000 / (e.bpm * TPB);
-    if (i > 0) ms += (e.tick - s[i - 1].tick) * bpmS[i - 1].mpt;
-    bpmS.push({st: e.tick, ms, bpm: e.bpm, mpt});
-  }
-}
-
 export function t2ms(tk) {
+  const bpmS = get('bpmSegments');
   let s = bpmS[0];
   for (let i = bpmS.length - 1; i >= 0; i--) if (tk >= bpmS[i].st) { s = bpmS[i]; break; }
   return s.ms + (tk - s.st) * s.mpt;
 }
 
 export function ms2t(ms) {
+  const bpmS = get('bpmSegments');
   let s = bpmS[0];
   for (let i = bpmS.length - 1; i >= 0; i--) if (ms >= bpmS[i].ms) { s = bpmS[i]; break; }
   return s.st + (ms - s.ms) / s.mpt;

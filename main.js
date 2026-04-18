@@ -33,6 +33,13 @@ import {
   invalidateNoteOverlaps, computeNoteOverlaps, classifyNotesForZOrder
 } from './overlaps.js';
 
+import {
+  dispatch, undoCmd, redoCmd, hasUndo as hasCmdUndo, hasRedo as hasCmdRedo,
+  onDispatch,
+  AddTempo, DeleteTempo, EditTempoBpm,
+  AddTimeSig, DeleteTimeSig, EditTimeSig
+} from './commands.js';
+
 
 /** Show a brief toast notification */
 function toast(msg) {
@@ -249,6 +256,14 @@ function saveHist(w) {
 }
 
 function undo(w) {
+  // Phase 3: for the 'm' scope (tempo/TS/metadata), try the command stack first.
+  // Tempo/TS edits now dispatch commands instead of using saveHist('m'), so Ctrl+Z
+  // in the Meta tab should prefer command-undo. Falls back to the legacy snapshot
+  // stack when no commands remain (keeps the startup baseline snapshot reachable).
+  if (w === 'm' && hasCmdUndo()) {
+    undoCmd();
+    return;
+  }
   const scope = histScopes[w]; if (!scope) return;
   // Save current state first if it differs from last saved
   saveHist(w);
@@ -258,6 +273,10 @@ function undo(w) {
 }
 
 function redo(w) {
+  if (w === 'm' && hasCmdRedo()) {
+    redoCmd();
+    return;
+  }
   const scope = histScopes[w]; if (!scope) return;
   if (histIdx[w] >= hist[w].length - 1) return;
   histIdx[w]++;
@@ -1374,13 +1393,12 @@ function handleNTap(e) {
     const mStr = tickToMeasure(snp);
     const val = prompt(`BPM at ${mStr} (t${snp}):`, curBPM);
     if (val && !isNaN(+val) && +val > 0) {
-      if (D.tempo.some(t => t.tick === snp)) {
-        const t = D.tempo.find(t => t.tick === snp); t.bpm = +val;
+      const existing = D.tempo.find(t => t.tick === snp);
+      if (existing) {
+        if (existing.bpm !== +val) dispatch(EditTempoBpm(snp, existing.bpm, +val));
       } else {
-        D.tempo.push({tick: snp, bpm: +val});
+        dispatch(AddTempo({tick: snp, bpm: +val}));
       }
-      D.tempo.sort((a, b) => a.tick - b.tick);
-      compBPM(); renderTempoList(); drawN(); drawS(); saveHist('m');
       toast(`BPM ${val} at ${mStr}`);
     }
     return;
@@ -1392,14 +1410,16 @@ function handleNTap(e) {
     if (val) {
       const parts = val.split('/').map(Number);
       if (parts.length === 2 && parts[0] > 0 && parts[1] > 0) {
-        if (D.timeSignatures.some(t => t.tick === snp)) {
-          const t = D.timeSignatures.find(t => t.tick === snp); t.numerator = parts[0]; t.denominator = parts[1];
+        const existing = D.timeSignatures.find(t => t.tick === snp);
+        if (existing) {
+          const oldTs = {numerator: existing.numerator, denominator: existing.denominator};
+          const newTs = {numerator: parts[0], denominator: parts[1]};
+          if (oldTs.numerator !== newTs.numerator || oldTs.denominator !== newTs.denominator) {
+            dispatch(EditTimeSig(snp, oldTs, newTs));
+          }
         } else {
-          D.timeSignatures.push({tick: snp, numerator: parts[0], denominator: parts[1]});
+          dispatch(AddTimeSig({tick: snp, numerator: parts[0], denominator: parts[1]}));
         }
-        D.timeSignatures.sort((a, b) => a.tick - b.tick);
-        invalidateTSCache();
-        renderTSList(); drawN(); drawS(); saveHist('m');
         toast(`${parts[0]}/${parts[1]} at ${mStr}`);
       }
     }
@@ -3442,32 +3462,58 @@ function renderTSList() {
   }).join('');
 }
 
+// Helper: UI side-effects after an m-scope command (tempo/TS).
+// Mirrors what histScopes.m.restore used to do, minus the data restoration.
+// Wired via onDispatch() below so it runs for apply/undo/redo uniformly.
+function _afterMetaCommand() {
+  updateTotalMs();
+  renderTempoList(); renderTSList();
+  if (activeTab === 'note') drawN();
+  else if (activeTab === 'shape') drawS();
+  else if (activeTab === 'prev') drawP();
+  scheduleAutoSave();
+}
+
 function addTempo() {
   const tkStr = $('tAddTk').value;
   const tk = measureToTick(tkStr);
   if (tk === null) { alert('올바른 마디 표기를 입력하세요 (예: 1, 3.2, 80.4.1, t1920)'); return; }
   const bpm = +$('tAddBpm').value || 120;
   if (D.tempo.some(t => t.tick === tk)) { alert('이미 해당 위치에 템포 변경이 있습니다: ' + tickToMeasure(tk)); return; }
-  D.tempo.push({tick: tk, bpm});
-  D.tempo.sort((a, b) => a.tick - b.tick);
-  compBPM(); renderTempoList(); drawN(); drawS(); saveHist('m');
+  dispatch(AddTempo({tick: tk, bpm}));
 }
 
 function editTempo(i, tk, bpm) {
   const sorted = [...D.tempo].sort((a, b) => a.tick - b.tick);
-  const t = sorted[i];
-  if (bpm !== null && bpm !== undefined) t.bpm = bpm;
-  if (tk !== null && tk !== undefined) t.tick = tk;
-  D.tempo = sorted;
-  compBPM(); renderTempoList(); drawN(); drawS(); saveHist('m');
+  const t = sorted[i]; if (!t) return;
+  if (bpm !== null && bpm !== undefined) {
+    if (t.bpm === bpm) return;
+    dispatch(EditTempoBpm(t.tick, t.bpm, bpm));
+  }
+  // Moving a tempo marker to a different tick is not yet migrated to Command;
+  // the UI currently only exposes BPM edits inline, but guard for future.
+  if (tk !== null && tk !== undefined && tk !== t.tick) {
+    const oldTick = t.tick;
+    dispatch({
+      name: 'MoveTempo',
+      apply: () => {
+        const entry = D.tempo.find(x => x.tick === oldTick);
+        if (entry) { entry.tick = tk; D.tempo.sort((a, b) => a.tick - b.tick); }
+      },
+      undo: () => {
+        const entry = D.tempo.find(x => x.tick === tk);
+        if (entry) { entry.tick = oldTick; D.tempo.sort((a, b) => a.tick - b.tick); }
+      },
+      invalidates: ['tempo']
+    });
+  }
 }
 
 function delTempo(i) {
   const sorted = [...D.tempo].sort((a, b) => a.tick - b.tick);
-  if (sorted[i].tick === 0) { alert('Cannot delete initial tempo'); return; }
-  sorted.splice(i, 1);
-  D.tempo = sorted;
-  compBPM(); renderTempoList(); drawN(); drawS(); saveHist('m');
+  const t = sorted[i]; if (!t) return;
+  if (t.tick === 0) { alert('Cannot delete initial tempo'); return; }
+  dispatch(DeleteTempo({...t}));
 }
 
 function addTimeSig() {
@@ -3477,29 +3523,26 @@ function addTimeSig() {
   const num = +$('tsAddNum').value || 4;
   const den = +$('tsAddDen').value || 4;
   if (D.timeSignatures.some(t => t.tick === tk)) { alert('이미 해당 위치에 박자 변경이 있습니다: ' + tickToMeasure(tk)); return; }
-  D.timeSignatures.push({tick: tk, numerator: num, denominator: den});
-  D.timeSignatures.sort((a, b) => a.tick - b.tick);
-  invalidateTSCache();
-  renderTSList(); drawN(); drawS(); saveHist('m');
+  dispatch(AddTimeSig({tick: tk, numerator: num, denominator: den}));
 }
 
 function editTS(i, num, den) {
   const sorted = getSortedTS();
-  const t = sorted[i];
-  if (num !== null && num !== undefined) t.numerator = num;
-  if (den !== null && den !== undefined) t.denominator = den;
-  // sorted is the cached array itself — mutation already applied to same reference
-  invalidateTSCache();
-  renderTSList(); drawN(); drawS(); saveHist('m');
+  const t = sorted[i]; if (!t) return;
+  const oldTs = {numerator: t.numerator, denominator: t.denominator};
+  const newTs = {
+    numerator:   num !== null && num !== undefined ? num : t.numerator,
+    denominator: den !== null && den !== undefined ? den : t.denominator
+  };
+  if (newTs.numerator === oldTs.numerator && newTs.denominator === oldTs.denominator) return;
+  dispatch(EditTimeSig(t.tick, oldTs, newTs));
 }
 
 function delTS(i) {
-  const sorted = getSortedTS().slice();
-  if (sorted[i].tick === 0) { alert('Cannot delete initial time signature'); return; }
-  sorted.splice(i, 1);
-  D.timeSignatures = sorted;
-  invalidateTSCache();
-  renderTSList(); drawN(); drawS(); saveHist('m');
+  const sorted = getSortedTS();
+  const t = sorted[i]; if (!t) return;
+  if (t.tick === 0) { alert('Cannot delete initial time signature'); return; }
+  dispatch(DeleteTimeSig({...t}));
 }
 
 // ============================================================
@@ -4370,6 +4413,10 @@ Object.assign(window, {
 //  INITIALIZATION
 // ============================================================
 window.addEventListener('DOMContentLoaded', () => {
+  // Hook m-scope command side effects (UI refresh, auto-save).
+  // Runs uniformly for apply/undo/redo — no bookkeeping at each edit site.
+  onDispatch(_afterMetaCommand);
+
   // Convert any Still/Arc easings to Linear
   D.shapeEvents.forEach(e => {
     if (e.easing === 'Still' || e.easing === 'Arc') e.easing = 'Linear';
