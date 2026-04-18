@@ -3,27 +3,28 @@
 // ============================================================
 // bpmS is module-local: it is only read by t2ms/ms2t/compBPM, all of
 // which live in this file. No external code needs to see it.
+//
+// Time signatures are cached via the generic cache.js abstraction.
+// Mutators outside this file call invalidate(['timeSignatures']) OR the
+// legacy compat wrapper invalidateTSCache() — both have identical effect.
 
 import { TPB } from './constants.js';
 import { D } from './state.js';
+import { defineCache, get, invalidate } from './cache.js';
 
 // ---- BPM segments cache ----
 // Built by compBPM(); rebuilt whenever D.tempo changes.
 let bpmS = [];
 
-// ---- Time signature cache ----
-let _tsCacheDirty = true;
-let _cachedTSSorted = [];
+// ---- Time signature cache (generic) ----
+defineCache('timeSignaturesSorted', ['timeSignatures'], () =>
+  [...D.timeSignatures].sort((a, b) => a.tick - b.tick)
+);
 
-export function invalidateTSCache() { _tsCacheDirty = true; }
+/** Legacy compat: forward to generic invalidate. */
+export function invalidateTSCache() { invalidate(['timeSignatures']); }
 
-export function getSortedTS() {
-  if (_tsCacheDirty) {
-    _cachedTSSorted = [...D.timeSignatures].sort((a, b) => a.tick - b.tick);
-    _tsCacheDirty = false;
-  }
-  return _cachedTSSorted;
-}
+export function getSortedTS() { return get('timeSignaturesSorted'); }
 
 // ============================================================
 //  BPM / TIMING

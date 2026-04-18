@@ -1,31 +1,16 @@
 // ============================================================
 //  DOMAIN: SHAPE — chain evaluation, easing, caches
 // ============================================================
-// Shape/lines caches are module-local. External mutators must call
-// invalidateShapeCache() / invalidateLinesCache() after changing
-// D.shapeEvents / D.lineEvents respectively.
+// Shape and line caches use the generic cache.js abstraction.
+// External mutators call invalidate(['shapeEvents'|'lineEvents']) — or the
+// legacy compat wrappers invalidateShapeCache/invalidateLinesCache, which
+// forward to the same mechanism.
 
 import { D } from './state.js';
-
-// ============================================================
-//  CHAIN EVALUATION CACHE
-// ============================================================
-// Pre-sorted L/R shape chains — rebuilt only when shapeEvents mutate
-let _shapeCacheDirty = true;
-let _cachedLeftChain  = [];   // sorted left events (easing !== null)
-let _cachedRightChain = [];   // sorted right events (easing !== null)
-let _cachedLeftInit   = 32;   // initial left value
-let _cachedRightInit  = 40;   // initial right value
-let _cachedStepTicks  = new Set(); // ticks where a Step event (duration 0, easing !== null) exists
-
-let _linesCacheDirty = true;
-let _cachedLinesSorted = [];  // sorted line events
-
-export function invalidateShapeCache() { _shapeCacheDirty = true; }
-export function invalidateLinesCache() { _linesCacheDirty = true; }
+import { defineCache, get, invalidate } from './cache.js';
 
 // Shape event sort comparator: by startTick, then duration==0 first, then Step last.
-// Shared between _rebuildShapeCache and any ad-hoc shapeEvents sorting.
+// Shared between the shapeChains cache and any ad-hoc shapeEvents sorting.
 export function shapeEventCmp(a, b) {
   if (a.startTick !== b.startTick) return a.startTick - b.startTick;
   const aZ = (a.duration || 0) === 0 ? 0 : 1;
@@ -36,29 +21,38 @@ export function shapeEventCmp(a, b) {
   return aS - bS;
 }
 
-function _rebuildShapeCache() {
-  if (!_shapeCacheDirty) return;
-  _shapeCacheDirty = false;
+// ============================================================
+//  CHAIN EVALUATION CACHES
+// ============================================================
+// shapeChains groups the 5 values produced from a single pass over
+// D.shapeEvents: leftChain, rightChain, leftInit, rightInit, stepTicks.
+// Computed together because they share a filter; memoized together
+// because they invalidate together.
+defineCache('shapeChains', ['shapeEvents'], () => {
   const leftAll  = D.shapeEvents.filter(e => !e.isRight);
   const rightAll = D.shapeEvents.filter(e =>  e.isRight);
   const lInit = leftAll.find(e => e.easing === null);
   const rInit = rightAll.find(e => e.easing === null);
-  _cachedLeftInit  = lInit ? lInit.targetPos : 32;
-  _cachedRightInit = rInit ? rInit.targetPos : 40;
-  _cachedLeftChain  = leftAll.filter(e => e.easing !== null).sort(shapeEventCmp);
-  _cachedRightChain = rightAll.filter(e => e.easing !== null).sort(shapeEventCmp);
-  // Step-tick set: Step = duration 0, easing !== null
-  _cachedStepTicks = new Set();
+  const stepTicks = new Set();
   for (const e of D.shapeEvents) {
-    if (e.duration === 0 && e.easing !== null) _cachedStepTicks.add(e.startTick);
+    if (e.duration === 0 && e.easing !== null) stepTicks.add(e.startTick);
   }
-}
+  return {
+    leftChain:  leftAll.filter(e => e.easing !== null).sort(shapeEventCmp),
+    rightChain: rightAll.filter(e => e.easing !== null).sort(shapeEventCmp),
+    leftInit:   lInit ? lInit.targetPos : 32,
+    rightInit:  rInit ? rInit.targetPos : 40,
+    stepTicks
+  };
+});
 
-function _rebuildLinesCache() {
-  if (!_linesCacheDirty) return;
-  _linesCacheDirty = false;
-  _cachedLinesSorted = [...D.lineEvents].sort((a, b) => a.startTick - b.startTick);
-}
+defineCache('lineEventsSorted', ['lineEvents'], () =>
+  [...D.lineEvents].sort((a, b) => a.startTick - b.startTick)
+);
+
+/** Legacy compat wrappers — forward to generic invalidate. */
+export function invalidateShapeCache() { invalidate(['shapeEvents']); }
+export function invalidateLinesCache() { invalidate(['lineEvents']); }
 
 // ============================================================
 //  EASING FUNCTIONS
@@ -168,10 +162,9 @@ export function buildShapePointArrays(botTk, topTk, steps, tk2y, p2x) {
   return {lP, rP, stepTicks};
 }
 
-// Check if a tick is a Step tick (uses cached Set populated in _rebuildShapeCache)
+// Check if a tick is a Step tick (uses shapeChains cache)
 export function isStepTick(tick) {
-  _rebuildShapeCache();
-  return _cachedStepTicks.has(tick);
+  return get('shapeChains').stepTicks.has(tick);
 }
 
 // Arc auto-cycle: pick Out-Sine or In-Sine based on the previous event's easing on the same side.
@@ -216,17 +209,16 @@ export function normalizeShapeChain(isRight) {
 
 // Fast cached getShape — uses pre-sorted chains
 export function getShape(tick) {
-  _rebuildShapeCache();
+  const c = get('shapeChains');
   return {
-    left:  _evalSorted(_cachedLeftChain,  _cachedLeftInit,  tick),
-    right: _evalSorted(_cachedRightChain, _cachedRightInit, tick)
+    left:  _evalSorted(c.leftChain,  c.leftInit,  tick),
+    right: _evalSorted(c.rightChain, c.rightInit, tick)
   };
 }
 
 // Fast cached getLines — uses pre-sorted line events
 export function getLines(tick) {
-  _rebuildLinesCache();
-  const evts = _cachedLinesSorted;
+  const evts = get('lineEventsSorted');
   if (!evts.length) return [25,25,25,25];
   let val = evts[0].lines;
   for (let i = 0; i < evts.length; i++) {
