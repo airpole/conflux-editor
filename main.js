@@ -704,9 +704,9 @@ function setNT(t) {
   nTool = t; cancelLN(); cancelTE();
   if (t !== 'sel') selectedNotes.clear();
   document.querySelectorAll('#ntb .t[data-t]').forEach(b => {
-    b.classList.remove('on', 'bpm-on', 'sel-on');
+    b.classList.remove('on', 'sel-on');
     if (b.dataset.t === t) {
-      b.classList.add((t === 'bpm' || t === 'ts') ? 'bpm-on' : t === 'sel' ? 'sel-on' : 'on');
+      b.classList.add(t === 'sel' ? 'sel-on' : 'on');
     }
   });
   drawN();
@@ -1386,45 +1386,6 @@ function handleNTap(e) {
   const rx = x - padL;
   const clickTk = nScr + (ch - y) * tpp;
   const snp = snap(clickTk, nGD);
-
-  // BPM/TS tools work on full canvas
-  if (nTool === 'bpm') {
-    const curBPM = getBPMAt(snp);
-    const mStr = tickToMeasure(snp);
-    const val = prompt(`BPM at ${mStr} (t${snp}):`, curBPM);
-    if (val && !isNaN(+val) && +val > 0) {
-      const existing = D.tempo.find(t => t.tick === snp);
-      if (existing) {
-        if (existing.bpm !== +val) dispatch(EditTempoBpm(snp, existing.bpm, +val));
-      } else {
-        dispatch(AddTempo({tick: snp, bpm: +val}));
-      }
-      toast(`BPM ${val} at ${mStr}`);
-    }
-    return;
-  }
-  if (nTool === 'ts') {
-    const curTS = getTimeSig(snp);
-    const mStr = tickToMeasure(snp);
-    const val = prompt(`Time signature at ${mStr} (t${snp}, e.g. 3/4):`, `${curTS.numerator}/${curTS.denominator}`);
-    if (val) {
-      const parts = val.split('/').map(Number);
-      if (parts.length === 2 && parts[0] > 0 && parts[1] > 0) {
-        const existing = D.timeSignatures.find(t => t.tick === snp);
-        if (existing) {
-          const oldTs = {numerator: existing.numerator, denominator: existing.denominator};
-          const newTs = {numerator: parts[0], denominator: parts[1]};
-          if (oldTs.numerator !== newTs.numerator || oldTs.denominator !== newTs.denominator) {
-            dispatch(EditTimeSig(snp, oldTs, newTs));
-          }
-        } else {
-          dispatch(AddTimeSig({tick: snp, numerator: parts[0], denominator: parts[1]}));
-        }
-        toast(`${parts[0]}/${parts[1]} at ${mStr}`);
-      }
-    }
-    return;
-  }
 
   // Text event tool — 2-click workflow (like LN)
   if (nTool === 'txt') {
@@ -4345,8 +4306,6 @@ document.addEventListener('keydown', (e) => {
     if (key === 'w') { setNT('ln'); return; }   // Long
     if (key === 'e') { setNT('w'); return; }    // Wide
     if (key === 'r') { setNT('wl'); return; }   // WLN
-    if (key === 't') { setNT('bpm'); return; }  // BPM
-    if (key === 'y') { setNT('ts'); return; }   // Beat
     if (key === 'u') { setNT('txt'); return; }  // Text
     return;
   }
