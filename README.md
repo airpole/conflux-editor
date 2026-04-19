@@ -1,96 +1,151 @@
-# Conflux Editor v20 — Phase 5
+# Conflux Editor v21 — Phase 1
 
-핫사운드 스케줄러와 미스 체커를 **O(N)/프레임 → O(1)/프레임**으로. 500+ 노트 차트에서 체감 가능한 성능 개선.
+**Preview → Play 통합 + Autoplay 토글**
 
-## 파일 구조 (11개)
+Preview 탭을 제거하고, Play 탭 하나로 스크러빙·세션 판정·자동 재생을 모두 처리. 4가지 경우(autoplay ON/OFF × Play/Restart)가 모두 전체화면 진입, HUD는 네 경우 모두 동일.
+
+## 파일 구조 (11개, v20과 동일)
 
 ```
-index.html      main.js (4371줄)
+index.html      main.js
 constants.js    state.js
-cache.js        # +getVersion()
-timing.js       shape.js    overlaps.js    commands.js    renderer.js
-scheduler.js    # NEW — 160줄
+cache.js        timing.js    shape.js    overlaps.js
+commands.js     renderer.js  scheduler.js  # +autoJudge
 ```
 
-## Phase 5 변경
+## Phase 1 변경 요약
 
-### 1. `scheduler.js` 신설
+### 1. 탭 구성 — `Notes / Shapes / Play / Meta` (4개)
 
-두 개의 포인터 기반 sweeper + 바이너리 서치 reset.
+`Preview` 탭 완전 제거. `prev` 라우팅 키도 `TAB_MAP`에서 제거.
+
+### 2. Play 탭 컨트롤 바 (단일 줄)
+
+```
+[▶/⏸]  [↺]  [============seek============]  00:00  [☐ Auto]
+```
+
+- `▶/⏸` (`playToggle`) — 현재 seek 위치에서 재생 / 일시정지 (=기존 "여기서부터")
+- `↺` (`playRestart`) — 처음부터 (LEAD_IN 2초 포함)
+- seek slider (`playSeekTo`) — 세션 비활성 시만 작동. Play/Restart 누르면 여기 위치에서 시작
+- `☐ Auto` (체크박스) — 켜면 자동 SYNC 판정 모드
+
+**탭 간 seek 위치 공유**: seek slider는 `sharedMs`를 조정. Notes/Shapes 탭에서 이동한 위치가 Play 탭에도 반영되고, Play 탭에서 조정한 위치가 다른 탭 seek에도 반영됨.
+
+### 3. Autoplay 동작
+
+| Autoplay | 판정 | 히트사운드 | 화면 |
+|---|---|---|---|
+| OFF | 키 입력 (기존 Play) | keydown 시 즉시 | 전체화면 + HUD |
+| ON | 자동 SYNC | 150ms pre-schedule | 전체화면 + HUD |
+
+**autoplay ON 시 키 입력 무시**: `handlePlayKeyDown/Up`에 `if (playAutoplay) return;` 가드. 자동으로만 판정, 유저 터치는 pause 외엔 반응 안 함.
+
+### 4. 전체화면
+
+**4가지 조합 모두 전체화면 진입**. `startPlay(fromBeginning, autoplay)` 내부에서 `playFullscreen = true` 강제. `stopPlay` 시 해제 + 일반 Play 탭 idle 화면 복귀.
+
+### 5. `scheduler.js` 확장 — `autoJudge`
 
 ```js
-// 공통 캐시
-defineCache('notesSorted', ['notes'], () => [...D.notes].sort(...));
-
-// 히트사운드 스케줄러
-resetHitScheduler(curMs)                              // O(log N)
-scheduleHitsounds(curMs, lookaheadMs, actx, playHitAt)  // O(1~k)/frame
-
-// 미스 체커
-resetMissChecker(curMs)                               // O(log N)
-checkPlayMisses(curMs, isDone, onMiss)                // O(1~k)/frame
+resetAutoJudger(curMs)                        // O(log N), binary-search rebind
+autoJudge(curMs, isDone, onHit)               // O(1~k)/frame
 ```
 
-v19의 `for (const n of D.notes)` 전체 스캔이 사라지고 **이미 지난 노트 포인터가 단조 증가**. 각 세션에서 amortized O(N) 총합, O(1) per-frame 기대값.
+Preview의 auto-hit 로직이 `drawGameFrame` 내부(O(N)/frame)에서 돌던 것을, scheduler 패턴으로 포팅. `notesSorted` 캐시를 재사용하므로 추가 메모리 오버헤드 0. 노트 편집 시 version 추적으로 자동 rebind.
 
-### 2. `cache.js` 확장
+autoplay 모드의 playLoop:
+```js
+if (playAutoplay) {
+  scheduleHitsounds(curMs, 150, actx, playHitAt);
+  autoJudge(curMs, n => playHitMap.has(n),
+            (n, diff) => applyJudgment(n, diff, curMs, /*silent=*/true));
+}
+```
 
-`getVersion(key)` 추가. 캐시가 rebuild될 때마다 version 증가. Scheduler가 이를 관찰해서 **노트 편집 후 자동으로 포인터 리셋** — `invalidate(['notes'])` 한 번이면 스케줄러도 따라옴.
+`applyJudgment`의 `silent` 플래그는 오토플레이 시 `playHit()` 즉시 재생 생략용 (hitsound는 scheduleHitsounds가 AudioContext에 미리 scheduling함).
 
-### 3. 두 가지 정직한 설계 결정
+### 6. `drawGameFrame` 단순화
 
-**(a) Monotonic 가정 깨지지 않게**: `JUDGE_GOOD`과 `JUDGE_WIDE_SYNC`가 현재는 둘 다 100이지만 **미래에 달라질 수 있음**. 미스 체커는 `maxWin` 기준으로 포인터 advance, 개별 노트는 자기 window로 판정. "Wide window가 더 크면 Regular 노트가 먼저 window 닫혀도 포인터는 아직 못 넘어가" 같은 엣지 케이스 대응.
+**이전**: `opts.hitMap === null`이면 "preview mode"로 들어가서 내부적으로 hitSet에 자동 기록, HUD까지 직접 그림. 분기 5곳.
 
-**(b) DI (Dependency Injection)**: `scheduleHitsounds`가 `actx`, `playHitAt`을 파라미터로 받음. scheduler.js가 audio 레이어에 결합 안 됨. 테스트/리플레이스 쉬움.
+**이후**: `hitMap`은 항상 `Map`, `missSet`은 항상 `Set`. 분기 완전 제거. idle 상태는 공유 `_EMPTY_HITMAP`/`_EMPTY_MISSSET` 전달.
 
-### 4. main.js 변경
+HUD 내부 렌더링은 제거됨. `drawPlayScreen`이 `drawUnifiedHUD`를 명시적으로 호출 (기존 구조).
 
-- 기존 `_hsScheduledUpTo`, `_hsScheduledNotes`, `resetHitScheduler`, `scheduleHitsounds`, `checkPlayMisses` 구현 제거 (~35줄)
-- 호출부 어댑팅:
-  - `resetHitScheduler()` → `resetHitScheduler(pvMs)` 3군데 (pvToggle/pvRestart/pvSeekTo)
-  - `scheduleHitsounds(pvMs, 150)` → `scheduleHitsounds(pvMs, 150, actx, playHitAt)` + 가드 조건을 호출부로 올림
-  - `checkPlayMisses(curMs)` → `checkPlayMisses(curMs, isDone, onMiss)` — 콜백 두 개 전달
-- `startPlay`에 `resetMissChecker(offMs)` 추가 — 연속 play 세션에서 포인터 stale 방지
+### 7. 제거된 함수·변수 (v20 → v21)
+
+**함수 5개**: `pvToggle`, `pvStop`, `pvRestart`, `pvSeekTo`, `pvFullscreen`, `pvExitFullscreen`, `rszFSCanvas`, `drawP`, `getPvMs` (총 9개)
+
+**상태 10개**: `pvOn`, `pvMs`, `pvRAF`, `pvT0`, `pvMs0`, `pvAudioStarted`, `pvFSOn`, `hitSet`, `hitEndSet`, `pvLastJudg`
+
+**DOM**: `#prevP`, `.pv-fs` 오버레이, `#pvFS`, `#pvFSCv`, `#pvSeek`, `#pvTime`, `#pvPlayBtn`, `#pvFSPlayBtn`, `#pvI`, `#pvFSI`, `#pvFSSeek`, `#pvFSTime`, `#playStartBtns`, `#playStopBtn`, `#playStatsTxt`
+
+**신규 추가**: `playToggle`, `playRestart`, `playSeekTo` (함수), `playAutoplay` (상태), `#playBtn`, `#playSeek`, `#playTime`, `#playAutoChk` (DOM), `_EMPTY_HITMAP`/`_EMPTY_MISSSET` (공유 stub)
 
 ## 숫자
 
-| 항목 | Phase 4a | Phase 5 | 차이 |
+| 항목 | v20 Phase 5 | v21 Phase 1 | 차이 |
 |---|---|---|---|
-| 파일 수 | 10 | 11 | +1 |
-| main.js | 4387 | 4371 | −16 |
-| scheduler.js | — | 160 | NEW |
-| **scheduleHitsounds 복잡도** | O(N)/frame | **O(1~k)/frame** | |
-| **checkPlayMisses 복잡도** | O(N)/frame | **O(1~k)/frame** | |
+| 파일 수 | 11 | 11 | 0 |
+| main.js | 4371 | 4253 | **−118** |
+| index.html | 428 | 386 | −42 |
+| scheduler.js | 168 | 194 | +26 (autoJudge) |
+| constants.js | 51 | 51 | 0 |
+| 총 JS | ~5316 | ~5224 | −92 |
 
-k = 이번 프레임에 window 안으로 들어온 노트 수. 보통 0–2개, 최악(같은 tick에 수십 노트 집중) 상수 수십.
+## 회귀 검증 체크리스트
 
-## 성능 검증 가이드
+**Play 탭 기본 동작:**
+- [ ] Play 탭 진입 시 static preview가 sharedMs 위치에 표시
+- [ ] Notes 탭에서 노트 편집 → Play 탭 전환 → 그 위치의 static preview
+- [ ] Play 탭 seek slider로 위치 이동 → 다른 탭 seek에도 반영
+- [ ] Space 키로 playToggle 작동 (Play 탭 활성 시)
 
-**체감 측정법** (Chrome DevTools, 모바일 지원):
+**Autoplay OFF (기존 Play 모드):**
+- [ ] ▶ 버튼 → 현재 seek 위치에서 시작 → 전체화면 진입
+- [ ] ↺ 버튼 → 처음부터 (lead-in 2초) → 전체화면 진입
+- [ ] 키 입력 판정 정상 (SYNC/PERFECT/GOOD/MISS)
+- [ ] 노트 miss 판정이 기존과 동일한 타이밍 (±100ms)
+- [ ] Wide 노트 miss 판정 ±100ms
+- [ ] LN tail release 판정
+- [ ] 세션 종료 시 toast로 결과 요약
+- [ ] 연속 두 번 ▶ → 두 번째도 정상
+- [ ] 음악 끝 + 2초 후 자동 종료
 
-1. DevTools → Performance 탭 열기
-2. 500+ 노트가 있는 차트 로드 (Waves Flux 정도면 충분)
-3. Preview 재생 시작, 몇 초 뒤 Record 중단
-4. Flame graph에서 `scheduleHitsounds` 프레임 찾기:
-   - Phase 4a: 각 프레임 `D.notes.length`만큼 스캔 — 500 노트면 체감 가능한 CPU 사용
-   - Phase 5: 프레임당 거의 0ms, 포인터 체크만
+**Autoplay ON:**
+- [ ] Auto 체크박스 ON → ▶ → 모든 노트 자동 SYNC
+- [ ] 히트사운드가 정확한 타이밍에 (노트 head ms에 맞춰)
+- [ ] 키 눌러도 아무 반응 없음
+- [ ] HUD (combo/score/counters/title 등) 정상 표시
+- [ ] 중간에 pause 버튼 누르면 즉시 정지, 결과 toast 나오지 않음
+- [ ] Auto ON + ↺ → 처음부터 자동 재생
+- [ ] 재생 중 Auto 체크박스 조작은 세션 끝나기 전까지 영향 없음 (세션 시작 시점 값 고정)
 
-**주관적 체감**: 로우엔드 모바일에서 긴 차트 Preview 시 프레임 드롭 완화. S24+는 Phase 4a에서도 드롭 없을 가능성이 커서 눈으로 안 보일 수도 있음 — DevTools가 정확함.
+**전체화면:**
+- [ ] 4가지 모두 전체화면 진입 (Auto × {Play, Restart})
+- [ ] 전체화면 종료 (Escape 키, pause 버튼, native gesture) 시 Play 탭으로 복귀
+- [ ] 전체화면 canvas가 16:9 비율로 레터박스 정렬
 
-## 검증 체크리스트
+**Seek 관련:**
+- [ ] Play 세션 중 seek slider 조작 무시 (`playSeekTo`는 `playActive` 시 early return)
+- [ ] 세션 시작 전 seek slider 이동 → static preview 그 위치로 이동
+- [ ] 세션 종료 후 seek 값이 종료 위치 반영
 
-**회귀 체크 (가장 중요):**
+**탭 간 상호작용:**
+- [ ] Play 탭에서 세션 중 다른 탭 전환 시도 → 세션 자동 종료 (`goTab`의 stopPlay)
+- [ ] Play 세션 중 Meta 탭의 BPM 변경 불가능 (탭 이동 시 세션 종료됨)
+- [ ] 세션 종료 후 Notes 탭 이동 → 세션 종료 위치에서 작업 이어가기
 
-- [ ] **Preview**: 재생/정지/Seek 반복 → 히트사운드가 정확한 타이밍에 나는지 (v19와 동일)
-- [ ] **Preview**: seek 후 **이미 지난 노트의 히트사운드가 뒤늦게 들리지 않는지** ← v19의 `_hsScheduledUpTo` 대신 WeakSet 기반으로 바꾸면서 가장 회귀 가능성 있는 부분
-- [ ] **Preview**: 노트 편집(Notes 탭에서 새 노트 추가) 후 Preview → 새 노트의 히트사운드가 나는지 (cache version 추적 작동 확인)
-- [ ] **Play 모드**: 정상적으로 MISS 판정이 나는지 (window 지난 노트)
-- [ ] **Play 모드**: 두 번 연속 실행 → 두 번째 play도 정상 (resetMissChecker 작동 확인)
-- [ ] **Play 모드**: 와이드 노트 MISS가 정확한 타이밍(±100ms)에 나는지
+**Edit command 회귀 (Phase 1 바깥이지만 확인):**
+- [ ] Meta 탭 BPM 추가/편집/삭제 → undo/redo 정상
+- [ ] Notes 편집 → saveHist 기반 undo 정상
+- [ ] Shapes 편집 → saveHist 기반 undo 정상
 
-**엣지 케이스:**
-- [ ] Lead-in 구간(curMs < 0)에서 히트사운드가 안 나는지 (기존과 동일해야 함)
-- [ ] Preview 일시정지 → 재시작 → 히트사운드 재중복 안 나는지
+**파일 로드/저장:**
+- [ ] v20 저장 파일 로드 정상
+- [ ] 로드 후 Play 탭 진입 → 정상 static preview
+- [ ] 자동 저장 정상 (60초 주기 + beforeunload)
 
 ## 실행
 
@@ -98,15 +153,14 @@ k = 이번 프레임에 window 안으로 들어온 노트 수. 보통 0–2개, 
 python3 -m http.server 8000   # 또는 GitHub Pages
 ```
 
-## 남은 Phase (계획 문서 §5)
+GitHub Pages 배포 시 11개 파일 모두 root에 평탄하게 업로드.
 
-- **Phase 4b** (skipped): 필요해지면. 지금은 Phase 4a만으로 충분
-- **Phase 6** (ongoing): Notes/Shapes 편집을 Command 패턴으로 점진 이관. 시간 제약 없음, 기능 추가하면서 자연스럽게
+## 다음 Phase
 
-Phase 5까지 끝나면 계획 문서 §7 "성공 기준" 네 개 중 세 개 달성:
-1. ✅ 새 편집 액션 → Command 하나 정의하면 끝 (Phase 3, Meta 범위)
-2. 🟡 노트 렌더링 바꾸면 세 곳 대신 renderer.js 한 곳 (Phase 4a, primitive 차원까지)
-3. ✅ Tempo/TS 편집 undo 자동 (Phase 3)
-4. ✅ 1000+ 노트 차트 프레임 드롭 없음 (Phase 5)
-5. 🟡 파일당 <600줄 (main.js는 아직 4371; Phase 4b/6 이후 점진 감소)
-6. ✅ 차트 로드가 한 줄 (이미 `loadChartData(d)`로 단순)
+계획서 §작업 순서 추천 기준:
+- **Phase 3-1** — Shape sel+del 다중 삭제 (사용자 가장 불편, 구현 쉬움)
+- **Phase 3-4** — Wide head + step 렌더링 버그 수정
+- **Phase 4** — Flip 명료화 + long-press paste
+- ...
+
+Phase 1에서 놓친 점 있으면 Phase 2 이후로 넘어가기 전에 수정.

@@ -32,7 +32,7 @@ export const GDIVS = [1,2,3,4,6,8,12,16,24,32,48,64];
 export const LEAD_IN_MS = 2000;
 
 // ---- Tab routing ----
-export const TAB_MAP = {note:'noteP', shape:'shapeP', prev:'prevP', meta:'metaP', play:'playP'};
+export const TAB_MAP = {note:'noteP', shape:'shapeP', meta:'metaP', play:'playP'};
 
 // ---- Play mode keys ----
 export const DEFAULT_KEYS = {1:'KeyE', 2:'KeyR', 3:'KeyV', 4:'KeyN', 5:'KeyU', 6:'KeyI'};

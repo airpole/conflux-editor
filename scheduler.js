@@ -20,8 +20,6 @@ import { D } from './state.js';
 import { defineCache, get, getVersion } from './cache.js';
 import { t2ms } from './timing.js';
 import { JUDGE_GOOD, JUDGE_WIDE_SYNC } from './constants.js';
-
-// ---- Cache: notes sorted by startTick ----
 defineCache('notesSorted', ['notes'], () =>
   [...D.notes].sort((a, b) => a.startTick - b.startTick)
 );
@@ -155,5 +153,42 @@ export function checkPlayMisses(curMs, isDone, onMiss) {
     if (isDone(n)) continue;
     const missWindow = n.isWide ? JUDGE_WIDE_SYNC : JUDGE_GOOD;
     if (nStartMs + missWindow < curMs) onMiss(n);
+  }
+}
+
+// ============================================================
+//  AUTO JUDGER (autoplay mode)
+// ============================================================
+// Used by Play mode when autoplay toggle is on. Every note whose startTick
+// ms has just crossed curMs is auto-judged as SYNC and passed to onHit.
+// Already-hit notes (via the caller-supplied isDone predicate) are skipped,
+// so a pointer re-bind after seek won't double-hit.
+
+let _ajIdx = 0;
+let _ajCacheVersion = -1;
+
+/** Reset auto-judger state. Call on seek, restart, session start. */
+export function resetAutoJudger(curMs) {
+  const notes = get('notesSorted');
+  _ajCacheVersion = getVersion('notesSorted');
+  _ajIdx = lowerBound(notes, n => t2ms(n.startTick) >= curMs);
+}
+
+/**
+ * Auto-hit notes whose startTick has crossed curMs. Caller records the hit.
+ *
+ * @param {number} curMs                      current chart ms
+ * @param {(n: Note) => boolean} isDone       true if already recorded (idempotency guard)
+ * @param {(n: Note, diff: number) => void} onHit  called once per newly-crossed note; diff = curMs - noteMs (>= 0 typically)
+ */
+export function autoJudge(curMs, isDone, onHit) {
+  if (getVersion('notesSorted') !== _ajCacheVersion) resetAutoJudger(curMs);
+  const notes = get('notesSorted');
+  while (_ajIdx < notes.length) {
+    const n = notes[_ajIdx];
+    const nMs = t2ms(n.startTick);
+    if (nMs > curMs) break;
+    if (!isDone(n)) onHit(n, curMs - nMs);
+    _ajIdx++;
   }
 }

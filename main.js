@@ -47,6 +47,7 @@ import {
 import {
   resetHitScheduler, scheduleHitsounds,
   resetMissChecker, checkPlayMisses,
+  resetAutoJudger, autoJudge,
 } from './scheduler.js';
 
 
@@ -89,7 +90,9 @@ function loadChartData(d) {
     });
   }
   D.textEvents = d.textEvents || []; // Always reset — don't carry over from previous file
-  pvLastJudg = null; hitSet.clear(); hitEndSet.clear(); pvHitEffects = [];
+  pvHitEffects = [];
+  playHitMap.clear(); playMissSet.clear(); playEffects = [];
+  playJudgQueue = []; playCombo = 0; playMaxCombo = 0;
   invalidateNoteOverlaps();
   invalidateTSCache();
   compBPM(); updateTotalMs();
@@ -155,13 +158,8 @@ let edHitSet = {n: new Set(), s: new Set()};
 let edLastBeat = {n: -1, s: -1};
 
 // Preview playback state
-let pvOn = false, pvMs = 0, pvRAF = null, pvT0 = 0, pvMs0 = 0;
-let pvFSOn = false;
-let pvAudioStarted = false;  // Lead-in: has audio started yet?
-let hitSet = new Set();
-let hitEndSet = new Set();
-let pvHitEffects = [];           // Active hit effect animations
-let pvLastJudg = null;           // Last judgment in preview mode (persists)
+// Preview/Play hit tracking (unified since v21 — Play tab has inline controls)
+let pvHitEffects = [];           // Active hit effect animations (shared buffer)
 
 // File management
 let currentFileName = '';
@@ -180,6 +178,7 @@ rebuildCodeToChannel();
 let keyConfigMode = null; // null | 1-6
 
 let playActive = false, playFullscreen = false;
+let playAutoplay = false;      // v21: autoplay toggle (auto-SYNC instead of key input)
 let playT0 = 0, playOffMs = 0;
 let playAudioStarted = false;  // Lead-in: has audio started yet?
 let playHitMap = new Map();   // note → {diff, type, hitMs}
@@ -242,7 +241,7 @@ const histScopes = {
       // Meta changes affect tick→ms mapping used by all canvases; redraw active one
       if (activeTab === 'note') drawN();
       else if (activeTab === 'shape') drawS();
-      else if (activeTab === 'prev') drawP();
+      else if (activeTab === 'play' && !playActive) drawPlayIdle();
     }
   }
 };
@@ -361,11 +360,11 @@ function setPlaybackRate(val) {
     _audStartCtxTime = actx.currentTime;
     try { asrc.playbackRate.value = newRate; } catch (e) {}
   }
-  // Re-anchor preview/editor fallback timing
-  if (pvOn) {
-    pvMs = getPvMs();
-    pvMs0 = pvMs;
-    pvT0 = performance.now();
+  // Re-anchor play session timing
+  if (playActive) {
+    const curMs = playOffMs + (performance.now() - playT0) * playbackRate;
+    playOffMs = curMs;
+    playT0 = performance.now();
   }
   playbackRate = newRate;
   $('rateLbl').textContent = playbackRate.toFixed(2) + 'x';
@@ -405,16 +404,6 @@ function getPlayMs(w) {
   return edMs0[w] + (performance.now() - edT0[w]) * playbackRate;
 }
 
-function getPvMs() {
-  if (!pvOn) return pvMs;
-  if (actx && asrc && abuf) {
-    // Audio position = startSec + elapsed * playbackRate
-    const audioSec = _audStartSec + (actx.currentTime - _audStartCtxTime) * playbackRate;
-    const audioMs = audioSec * 1000;
-    return Math.max(0, audioMs - D.metadata.offset + globalOffset);
-  }
-  return pvMs0 + (performance.now() - pvT0) * playbackRate;
-}
 
 // ============================================================
 //  OFFSET MANAGEMENT
@@ -472,21 +461,21 @@ function syncSharedFromTab(tab) {
     sharedMs = t2ms(nScr);
   } else if (tab === 'shape') {
     sharedMs = t2ms(sScr);
-  } else if (tab === 'prev') {
-    sharedMs = Math.max(0, pvMs);
   }
+  // 'play' tab: sharedMs is already updated by playSeekTo; nothing to pull here.
   // Update all seek bars
   const frac = totalMs > 0 ? Math.max(0, (sharedMs / totalMs) * 1000) : 0;
   $('nSeek').value = frac; $('nTime').textContent = fmtMs(sharedMs);
   $('sSeek').value = frac; $('sTime').textContent = fmtMs(sharedMs);
-  $('pvSeek').value = frac; $('pvTime').textContent = fmtMs(sharedMs);
+  const playSeekEl = $('playSeek');
+  if (playSeekEl) { playSeekEl.value = frac; $('playTime').textContent = fmtMs(sharedMs); }
 }
 
 function applySharedToTab(tab) {
   const tk = ms2t(sharedMs);
   if (tab === 'note') { nScr = tk; }
   else if (tab === 'shape') { sScr = tk; }
-  else if (tab === 'prev') { pvMs = sharedMs; hitSet.clear(); hitEndSet.clear(); }
+  // 'play' reads sharedMs directly in drawPlayIdle; no per-tab mutation needed.
 }
 
 function goTab(t) {
@@ -495,7 +484,6 @@ function goTab(t) {
   syncSharedFromTab(activeTab);
   if (t !== 'note' && edPlay.n) stopEdPlay('n');
   if (t !== 'shape' && edPlay.s) stopEdPlay('s');
-  if (t !== 'prev' && pvOn) pvStop();
   if (t !== 'play' && playActive) stopPlay();
   // Cancel any pending key rebind when leaving the meta tab
   if (activeTab === 'meta' && t !== 'meta' && keyConfigMode !== null) {
@@ -513,7 +501,6 @@ function goTab(t) {
     rszActiveCanvas();
     if (t === 'note') drawN();
     else if (t === 'shape') drawS();
-    else if (t === 'prev') drawP();
     else if (t === 'play') drawPlayIdle();
   });
 }
@@ -533,9 +520,8 @@ function goFS() {
 }
 function onFullscreenChange() {
   setTimeout(() => {
-    // Handle pvFS exit via native gesture
+    // Handle play fullscreen exit via native gesture
     if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-      if (pvFSOn) { pvFSOn = false; $('pvFS').classList.remove('show'); }
       if (playFullscreen && playActive) stopPlay();
     }
     rszActiveCanvas(); redrawActiveTab();
@@ -549,7 +535,7 @@ document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 // ============================================================
 function rszActiveCanvas() {
   const dpr = devicePixelRatio;
-  const ids = activeTab === 'note' ? ['nCv'] : activeTab === 'shape' ? ['sCv'] : activeTab === 'prev' ? ['pCv'] : activeTab === 'play' ? ['plCv'] : [];
+  const ids = activeTab === 'note' ? ['nCv'] : activeTab === 'shape' ? ['sCv'] : activeTab === 'play' ? ['plCv'] : [];
   for (const id of ids) {
     const cv = $(id); if (!cv) continue;
     const p = cv.parentElement;
@@ -558,14 +544,12 @@ function rszActiveCanvas() {
     cv.width = r.width * dpr; cv.height = r.height * dpr;
     cv.style.width = r.width + 'px'; cv.style.height = r.height + 'px';
   }
-  if (pvFSOn) rszFSCanvas();
   if (playFullscreen) rszPlayFSCanvas();
 }
 
 function redrawActiveTab() {
   if (activeTab === 'note') drawN();
   else if (activeTab === 'shape') drawS();
-  else if (activeTab === 'prev') drawP();
   else if (activeTab === 'play' && !playActive) drawPlayIdle();
 }
 
@@ -2549,62 +2533,32 @@ function edSeek(w, v) {
 }
 
 // ============================================================
-//  PREVIEW
+//  PLAY TAB — inline controls (play / restart / seek)
 // ============================================================
-function pvToggle() {
-  if (pvOn) { pvStop(); return; }
-  pvOn = true; initAud(); hitSet.clear(); hitEndSet.clear(); pvHitEffects = []; pvLastJudg = null;
-  resetHitScheduler(pvMs);
-  $('pvPlayBtn').textContent = '⏸';
-  if (pvFSOn) $('pvFSPlayBtn').textContent = '⏸';
-  pvMs0 = pvMs; pvT0 = performance.now();
-  pvAudioStarted = false;
-  // Only start audio if we're past the lead-in (pvMs >= 0)
-  if (pvMs0 >= 0) {
-    const audioStartMs = pvMs0 + D.metadata.offset - globalOffset;
-    startAud(audioStartMs);
-    pvAudioStarted = true;
-  }
-  function frame() {
-    if (!pvOn) return;
-    pvMs = getPvMs();
-    // Lead-in: start audio when pvMs crosses 0
-    if (!pvAudioStarted && pvMs >= 0) {
-      pvAudioStarted = true;
-      startAud(D.metadata.offset - globalOffset);
-    }
-    // Pre-schedule hitsounds 150ms ahead (decoupled from rendering)
-    if (pvAudioStarted && actx && hitBuf && hitVol > 0) {
-      scheduleHitsounds(pvMs, 150, actx, playHitAt);
-    }
-    drawP();
-    pvRAF = requestAnimationFrame(frame);
-  }
-  pvRAF = requestAnimationFrame(frame);
+// The Play tab has a single control bar with play/pause, restart,
+// a seek slider, time display, and an autoplay toggle. All four
+// combinations (autoplay on/off × play/restart) enter fullscreen.
+//
+// "Play (여기서부터)" = start from current seek position
+// "Restart (처음부터)" = start from -LEAD_IN_MS
+// Autoplay OFF = live key-input judgment (default play behavior)
+// Autoplay ON  = auto-SYNC judgment, hitsounds pre-scheduled
+
+function playToggle() {
+  if (playActive) { stopPlay(); return; }
+  startPlay(false, playAutoplay);
 }
 
-function pvStop() {
-  pvOn = false; stopAud(); pvAudioStarted = false;
-  if (pvRAF) { cancelAnimationFrame(pvRAF); pvRAF = null; }
-  $('pvPlayBtn').textContent = '▶';
-  if (pvFSOn) $('pvFSPlayBtn').textContent = '▶';
+function playRestart() {
+  if (playActive) stopPlay();
+  startPlay(true, playAutoplay);
 }
 
-function pvRestart() {
-  pvStop(); pvMs = -LEAD_IN_MS;
-  hitSet.clear(); hitEndSet.clear(); pvHitEffects = []; pvLastJudg = null;
-  resetHitScheduler(pvMs);
-  drawP();
-}
-
-function pvSeekTo(v) {
-  const wasPlaying = pvOn;
-  if (wasPlaying) pvStop();
-  pvMs = (v / 1000) * totalMs;
-  hitSet.clear(); hitEndSet.clear(); pvHitEffects = []; pvLastJudg = null;
-  resetHitScheduler(pvMs);
-  drawP();
-  if (wasPlaying) pvToggle();
+function playSeekTo(v) {
+  if (playActive) return; // ignore during session
+  sharedMs = (v / 1000) * totalMs;
+  $('playTime').textContent = fmtMs(sharedMs);
+  drawPlayIdle();
 }
 
 // ============================================================
@@ -2684,8 +2638,6 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     }
   }
 
-  const isAutoHit = (opts.hitMap === null);
-
   // Wide note LN bodies (drawn behind line dividers)
   for (const wn of D.notes.filter(n => n.isWide && n.duration > 0)) {
     const wst = wn.startTick, wet = wst + wn.duration;
@@ -2693,7 +2645,7 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     if (wnMs > topMs + 300 || wneMs < botMs - 300) continue;
     // If hit, only draw the unconsumed portion (above judgment line)
     let drawSt = wst;
-    const wIsHit = isAutoHit ? (wnMs <= curMs) : (opts.hitMap && opts.hitMap.has(wn));
+    const wIsHit = opts.hitMap.has(wn);
     const wIsMiss = opts.missSet && opts.missSet.has(wn);
     if (wIsHit && !wIsMiss) {
       drawSt = Math.max(wst, curTk);
@@ -2826,24 +2778,8 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     else if (ov && (ov.type === 'merged' || (ov.type === 'yellow' && ov.fullYellow))) { headCol = OVERLAP_COLOR; bodyCol = OVERLAP_BODY; }
     else { headCol = '#ffffff'; bodyCol = NORMAL_BODY; }
     let isHit, isMissed;
-    if (isAutoHit) {
-      isHit = nMs <= curMs; isMissed = false;
-      if (isHit && !hitSet.has(n)) {
-        hitSet.add(n);
-        // Overlap direction: on Lines 2-3 (channels 2,3), check if same tick already has an effect → below
-        let above = true;
-        if (!n.isWide && OVERLAP_CHANNELS.includes(n.channel)) {
-          const hasSameTick = opts.hitEffects.some(h => h.tk === n.startTick && h.channel === n.channel && h.above);
-          if (hasSameTick) above = false;
-        }
-        opts.hitEffects.push({note: n, startMs: nMs, endMs: neMs, li, col: headCol, isWide: !!n.isWide, channel: n.channel, tk: n.startTick, judgType: 'SYNC', above});
-        if (!opts.useScheduler) playHit();
-      }
-      if (n.duration > 0 && neMs <= curMs && !hitEndSet.has(n)) hitEndSet.add(n);
-    } else {
-      isHit = opts.hitMap.has(n);
-      isMissed = opts.missSet && opts.missSet.has(n);
-    }
+    isHit = opts.hitMap.has(n);
+    isMissed = opts.missSet && opts.missSet.has(n);
     let alpha = 1;
     if (isHit && !n.duration) { alpha = Math.max(0, 1 - (curMs - nMs) / 100); } // Hit tap notes fade over 100ms
     if (isMissed && !n.duration) { alpha = 1; } // Miss tap notes keep scrolling (visible)
@@ -2935,17 +2871,10 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   const judgColMap = {SYNC:'#ffffff', PERFECT:'#ffe44a', GOOD:'#4aff8a', MISS:'#ff4a6a'};
 
   // Filter stale effects
-  if (isAutoHit) {
-    opts.hitEffects = pvHitEffects = pvHitEffects.filter(h => {
-      if (h.note.duration > 0) return curMs < h.endMs + holdFadeDur;
-      return curMs - h.startMs < effectDur;
-    });
-  } else {
-    opts.hitEffects = opts.hitEffects.filter(h => {
-      if (h.note.duration > 0) return curMs < h.endMs + holdFadeDur;
-      return curMs - h.startMs < effectDur;
-    });
-  }
+  opts.hitEffects = opts.hitEffects.filter(h => {
+    if (h.note.duration > 0) return curMs < h.endMs + holdFadeDur;
+    return curMs - h.startMs < effectDur;
+  });
 
   function drawSemiCircle(ctx, cx, cy, r, above, stroke) {
     ctx.beginPath();
@@ -3202,51 +3131,8 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
   }
 
-  // HUD (unified for preview and play)
-  if (isAutoHit) {
-    let combo = 0; for (const n of D.notes) { const sMs = t2ms(n.startTick); if (sMs <= curMs) { combo++; if (n.duration > 0 && t2ms(n.startTick + n.duration) <= curMs) combo++; } }
-    const totalNotes = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0);
-    const recent = [...hitSet].filter(n => curMs - t2ms(n.startTick) < 400 && curMs - t2ms(n.startTick) >= 0);
-    if (recent.length > 0) pvLastJudg = {type: 'SYNC', t: curMs};
-    const score = totalNotes > 0 ? Math.round((combo / totalNotes) * 1000000) : 0;
-    drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, {
-      combo, totalNotes, score,
-      lastJudg: pvLastJudg,
-      counts: {sync: combo, perfect: 0, good: 0, miss: 0},
-      accuracy: totalNotes > 0 ? (combo / totalNotes * 100) : 0,
-      mode: 'preview'
-    });
-  }
-}
-
-function drawP() {
-  const cv = pvFSOn ? $('pvFSCv') : $('pCv'), ctx = cv.getContext('2d');
-  const dpr = devicePixelRatio;
-  const cw = cv.width / dpr, ch_ = cv.height / dpr;
-  if (cw < 1 || ch_ < 1) return;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const asp = 16 / 9; let gw, gh, gx, gy;
-  if (cw / ch_ > asp) { gh = ch_; gw = gh * asp; gx = (cw - gw) / 2; gy = 0; } else { gw = cw; gh = gw / asp; gx = 0; gy = (ch_ - gh) / 2; }
-  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cw, ch_);
-  ctx.fillStyle = '#050508'; ctx.fillRect(gx, gy, gw, gh);
-  ctx.save(); ctx.beginPath(); ctx.rect(gx, gy, gw, gh); ctx.clip();
-
-  drawGameFrame(ctx, gx, gy, gw, gh, pvMs, {hitEffects: pvHitEffects, hitMap: null, missSet: null, showMissColor: false, useScheduler: pvOn});
-
-  ctx.restore();
-
-  const curMs = pvMs, curTk = ms2t(Math.max(0, curMs));
-  const rateStr = playbackRate < 1 ? `<br>Rate ${playbackRate.toFixed(2)}x` : '';
-  const infoStr = `${fmtMs(curMs)}<br>BPM ${getBPMAt(curTk)}<br>Speed ${pvSpd.toFixed(2)}${rateStr}`;
-  $(pvFSOn ? 'pvFSI' : 'pvI').innerHTML = infoStr;
-  const timeStr = fmtMs(curMs);
-  $('pvTime').textContent = timeStr;
-  if (pvFSOn) $('pvFSTime').textContent = timeStr;
-  if (totalMs > 0) {
-    const seekVal = Math.max(0, (curMs / totalMs) * 1000);
-    $('pvSeek').value = seekVal;
-    if (pvFSOn) $('pvFSSeek').value = seekVal;
-  }
+  // HUD is drawn externally by the caller (drawPlayScreen) via drawUnifiedHUD.
+  // drawPlayIdle doesn't draw HUD (it's just a static preview).
 }
 
 // ============================================================
@@ -3377,7 +3263,7 @@ function _afterMetaCommand() {
   renderTempoList(); renderTSList();
   if (activeTab === 'note') drawN();
   else if (activeTab === 'shape') drawS();
-  else if (activeTab === 'prev') drawP();
+  else if (activeTab === 'play' && !playActive) drawPlayIdle();
   scheduleAutoSave();
 }
 
@@ -3451,42 +3337,6 @@ function delTS(i) {
   if (t.tick === 0) { alert('Cannot delete initial time signature'); return; }
   dispatch(DeleteTimeSig({...t}));
 }
-
-// ============================================================
-//  PREVIEW FULLSCREEN
-// ============================================================
-function rszFSCanvas() {
-  const cv = $('pvFSCv'); if (!cv) return;
-  const p = cv.parentElement;
-  const r = p.getBoundingClientRect();
-  if (r.width < 1 || r.height < 1) return;
-  const dpr = devicePixelRatio;
-  cv.width = r.width * dpr; cv.height = r.height * dpr;
-  cv.style.width = r.width + 'px'; cv.style.height = r.height + 'px';
-}
-
-function pvFullscreen() {
-  pvFSOn = true;
-  $('pvFS').classList.add('show');
-  // Try native fullscreen on the container
-  const el = $('pvFS');
-  const req = el.requestFullscreen || el.webkitRequestFullscreen;
-  if (req) req.call(el).catch(() => {});
-  setTimeout(() => { rszFSCanvas(); drawP(); }, 50);
-}
-
-function pvExitFullscreen() {
-  pvFSOn = false;
-  $('pvFS').classList.remove('show');
-  if (document.fullscreenElement || document.webkitFullscreenElement) {
-    const exit = document.exitFullscreen || document.webkitExitFullscreen;
-    if (exit) exit.call(document).catch(() => {});
-  }
-  // Resize and redraw normal preview
-  setTimeout(() => { rszActiveCanvas(); drawP(); }, 50);
-}
-
-// Handle exiting native fullscreen (e.g. swipe gesture) - handled in main handler
 
 // ============================================================
 //  FILE MANAGER
@@ -3728,6 +3578,11 @@ function drawPlayScreen(cv, curMs) {
   ctx.restore();
 }
 
+// Shared empty stubs for idle Play rendering (new drawGameFrame contract:
+// hitMap is always a Map and missSet is always a Set, never null).
+const _EMPTY_HITMAP = new Map();
+const _EMPTY_MISSSET = new Set();
+
 function drawPlayIdle() {
   const cv = $('plCv'); if (!cv) return;
   const ctx = cv.getContext('2d');
@@ -3740,9 +3595,9 @@ function drawPlayIdle() {
   if (cw / ch_ > asp) { gh = ch_; gw = gh * asp; gx = (cw - gw) / 2; gy = 0; } else { gw = cw; gh = gw / asp; gx = 0; gy = (ch_ - gh) / 2; }
   ctx.fillStyle = '#050508'; ctx.fillRect(gx, gy, gw, gh);
   ctx.save(); ctx.beginPath(); ctx.rect(gx, gy, gw, gh); ctx.clip();
-  // Show static frame at current shared position (preview-like, but no hit tracking)
+  // Show static frame at current shared position — nothing hit, nothing missed.
   drawGameFrame(ctx, gx, gy, gw, gh, sharedMs, {
-    hitEffects: [], hitMap: null, missSet: null, showMissColor: false
+    hitEffects: [], hitMap: _EMPTY_HITMAP, missSet: _EMPTY_MISSSET, showMissColor: false
   });
   ctx.restore();
 }
@@ -3897,7 +3752,7 @@ function getPlayJudgment(channel, curMs) {
   return best ? {note: best, diff: curMs - t2ms(best.startTick)} : null;
 }
 
-function applyJudgment(note, diff, curMs) {
+function applyJudgment(note, diff, curMs, silent) {
   const abs = Math.abs(diff);
   // Wide notes: SYNC only (within ±100ms), no PERFECT/GOOD
   const type = note.isWide ? 'SYNC' : (abs <= JUDGE_SYNC ? 'SYNC' : abs <= JUDGE_PERFECT ? 'PERFECT' : 'GOOD');
@@ -3915,7 +3770,9 @@ function applyJudgment(note, diff, curMs) {
     if (hasSameTick) above = false;
   }
   playEffects.push({note, startMs: nMs, endMs: neMs, li, col, isWide: !!note.isWide, channel: note.channel, tk: note.startTick, judgType: type, above});
-  playHit();
+  // In autoplay mode, hitsounds are pre-scheduled by scheduleHitsounds —
+  // playHit() here would double-play (or play too late due to buffer latency).
+  if (!silent) playHit();
 }
 
 // checkPlayMisses moved to scheduler.js (binary-search + pointer).
@@ -3925,6 +3782,7 @@ function applyJudgment(note, diff, curMs) {
 //  PLAY MODE — KEY INPUT
 // ============================================================
 function handlePlayKeyDown(code) {
+  if (playAutoplay) return;  // autoplay: ignore key input
   const ch = codeToChannel[code];
   if (!ch || playKeyHeld.has(ch)) return;
   playKeyHeld.add(ch);
@@ -3947,6 +3805,7 @@ function handlePlayKeyDown(code) {
 }
 
 function handlePlayKeyUp(code) {
+  if (playAutoplay) return;  // autoplay: ignore key input
   const ch = codeToChannel[code];
   if (!ch) return;
   playKeyHeld.delete(ch);
@@ -3984,15 +3843,28 @@ function playLoop(ts) {
     startAud(D.metadata.offset - globalOffset);
   }
   if (curMs >= 0) {
-    checkPlayMisses(
-      curMs,
-      n => playHitMap.has(n) || playMissSet.has(n),
-      n => {
-        playMissSet.add(n);
-        playCombo = 0;
-        playJudgQueue.push({type: 'MISS', diff: undefined, t: curMs});
+    if (playAutoplay) {
+      // Pre-schedule hitsounds 150ms ahead (AudioContext-scheduled, exact timing)
+      if (playAudioStarted && actx && hitBuf && hitVol > 0) {
+        scheduleHitsounds(curMs, 150, actx, playHitAt);
       }
-    );
+      // Auto-judge any note whose startTick has crossed curMs → SYNC
+      autoJudge(
+        curMs,
+        n => playHitMap.has(n),
+        (n, diff) => applyJudgment(n, diff, curMs, /*silent=*/true)
+      );
+    } else {
+      checkPlayMisses(
+        curMs,
+        n => playHitMap.has(n) || playMissSet.has(n),
+        n => {
+          playMissSet.add(n);
+          playCombo = 0;
+          playJudgQueue.push({type: 'MISS', diff: undefined, t: curMs});
+        }
+      );
+    }
   }
   const cv = playFullscreen ? $('playFSCv') : $('plCv');
   if (cv) drawPlayScreen(cv, curMs);
@@ -4000,31 +3872,40 @@ function playLoop(ts) {
   playRAF = requestAnimationFrame(playLoop);
 }
 
-function startPlay(fromBeginning) {
-  if (pvOn) pvStop();
+/**
+ * Start a play session.
+ * @param {boolean} fromBeginning  true = restart from lead-in; false = from current sharedMs
+ * @param {boolean} autoplay       true = auto-SYNC judgment; false = live key input
+ *
+ * v21: all four combinations enter fullscreen. HUD is unchanged across modes.
+ */
+function startPlay(fromBeginning, autoplay) {
   initAud(); // Ensure AudioContext is ready (must be in user gesture handler)
   const offMs = fromBeginning ? -LEAD_IN_MS : sharedMs;
   playOffMs = offMs;
   playActive = true;
-  playFullscreen = fromBeginning;
+  playFullscreen = true;          // v21: always fullscreen
+  playAutoplay = !!autoplay;
   playAudioStarted = false;
   playHitMap.clear(); playMissSet.clear(); playEffects = [];
   playCombo = 0; playMaxCombo = 0; playJudgQueue = [];
   playHoldState = {}; playKeyHeld.clear();
+
+  // Reset both schedulers; only one will be used per frame based on playAutoplay,
+  // but resetting both keeps the pointer state clean after seek/toggle.
   resetMissChecker(offMs);
+  resetHitScheduler(offMs);
+  resetAutoJudger(offMs);
 
-  $('playStartBtns').style.display = 'none';
-  $('playStopBtn').style.display = '';
+  // Update play button icon (in case user returns to Play tab after session)
+  $('playBtn').textContent = '⏸';
 
-  if (fromBeginning) {
-    const el = $('playFS');
-    el.classList.add('show');
-    const req = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (req) req.call(el).catch(() => {});
-    setTimeout(rszPlayFSCanvas, 80);
-  } else {
-    rszActiveCanvas();
-  }
+  // Always enter fullscreen
+  const el = $('playFS');
+  el.classList.add('show');
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (req) req.call(el).catch(() => {});
+  setTimeout(rszPlayFSCanvas, 80);
 
   // If not from beginning (no lead-in), start audio immediately
   if (!fromBeginning) {
@@ -4049,20 +3930,21 @@ function stopPlay() {
     playFullscreen = false;
   }
 
-  $('playStartBtns').style.display = '';
-  $('playStopBtn').style.display = 'none';
+  $('playBtn').textContent = '▶';
 
-  // Show result summary
-  const cnt = [...playHitMap.values()].reduce((a, v) => {
-    if (v.type === 'SYNC') a.sync++;
-    else if (v.type === 'PERFECT') a.perfect++;
-    else if (v.type === 'GOOD') a.good++;
-    return a;
-  }, {sync: 0, perfect: 0, good: 0});
-  const sC = cnt.sync, pC = cnt.perfect, gC = cnt.good;
-  const total = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0);
-  const acc = total > 0 ? ((sC + pC * 0.9 + gC * 0.5) / total * 100) : 0;
-  toast(`SYNC:${sC} PERFECT:${pC} GOOD:${gC} MISS:${playMissSet.size} | ${acc.toFixed(1)}% | Combo:${playMaxCombo}`);
+  // Show result summary (skip in autoplay — the numbers aren't meaningful)
+  if (!playAutoplay) {
+    const cnt = [...playHitMap.values()].reduce((a, v) => {
+      if (v.type === 'SYNC') a.sync++;
+      else if (v.type === 'PERFECT') a.perfect++;
+      else if (v.type === 'GOOD') a.good++;
+      return a;
+    }, {sync: 0, perfect: 0, good: 0});
+    const sC = cnt.sync, pC = cnt.perfect, gC = cnt.good;
+    const total = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0);
+    const acc = total > 0 ? ((sC + pC * 0.9 + gC * 0.5) / total * 100) : 0;
+    toast(`SYNC:${sC} PERFECT:${pC} GOOD:${gC} MISS:${playMissSet.size} | ${acc.toFixed(1)}% | Combo:${playMaxCombo}`);
+  }
 
   requestAnimationFrame(() => { if (activeTab === 'play') { rszActiveCanvas(); drawPlayIdle(); } });
 }
@@ -4082,11 +3964,9 @@ function handleGameCanvasClick(e, cv) {
   if (clickX >= gx && clickX <= gx + pauseSz && clickY >= gy && clickY <= gy + pauseSz) {
     // Pause clicked
     if (playActive) stopPlay();
-    else if (pvOn) pvStop();
-    else if (pvFSOn && pvOn) pvStop();
   }
 }
-['pCv','pvFSCv','plCv','playFSCv'].forEach(id => {
+['plCv','playFSCv'].forEach(id => {
   const el = $(id); if (el) el.addEventListener('click', (e) => handleGameCanvasClick(e, el));
 });
 
@@ -4200,7 +4080,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     if (activeTab === 'note') toggleEdPlay('n');
     else if (activeTab === 'shape') toggleEdPlay('s');
-    else if (activeTab === 'prev') pvToggle();
+    else if (activeTab === 'play') playToggle();
     return;
   }
 
@@ -4302,14 +4182,13 @@ Object.assign(window, {
   pickNG, pickSG,
   // Playback — editor
   toggleEdPlay, edSeek, toggleMetronome, setOffsetHere, setGlobalPreset, setPlaybackRate, drawN,
-  // Preview
-  pvToggle, pvRestart, pvSeekTo, pvFullscreen, pvExitFullscreen,
   // Text events
   teNew, teSave, teDelete, teEditByIdx, tePickSelect,
   // Tempo / time signature (meta tab)
   addTempo, editTempo, delTempo, addTimeSig, editTS, delTS,
-  // Play mode
-  startPlay, stopPlay, resetKeyBindings,
+  // Play mode (v21: unified from former Preview + Play)
+  playToggle, playRestart, playSeekTo,
+  stopPlay, resetKeyBindings,
   // File / import / export
   doExport, doImport, showMod, closeMod, fmSave, fmSaveAs, fmLoad, fmDelete,
   // Audio
@@ -4356,6 +4235,10 @@ window.addEventListener('DOMContentLoaded', () => {
   if (spdInput) spdInput.addEventListener('change', e => { pvSpd = +e.target.value; });
   const thkInput = $('mThk');
   if (thkInput) thkInput.addEventListener('change', e => { nThk = +e.target.value; });
+
+  // v21: autoplay toggle in the Play tab control bar
+  const autoChk = $('playAutoChk');
+  if (autoChk) autoChk.addEventListener('change', e => { playAutoplay = e.target.checked; });
   
   compBPM(); updateTotalMs(); saveHist('n'); saveHist('s'); saveHist('m');
   buildGP('ngp', nGD, 'pickNG'); buildGP('sgp', sGD, 'pickSG');
