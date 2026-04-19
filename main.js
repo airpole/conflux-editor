@@ -40,6 +40,10 @@ import {
   AddTimeSig, DeleteTimeSig, EditTimeSig
 } from './commands.js';
 
+import {
+  resolveNoteColor, headColorAtTick, splitBodyByOverlap, drawNoteHead,
+} from './renderer.js';
+
 
 /** Show a brief toast notification */
 function toast(msg) {
@@ -1032,10 +1036,7 @@ function drawN() {
     const ov = !isWide ? _ovm.get(n) : undefined;
     if (ov && ov.type === 'hidden') return;
 
-    let headCol, bodyCol;
-    if (isWide) { headCol = WIDE_COLOR; bodyCol = WIDE_BODY; }
-    else if (ov && (ov.type === 'merged' || (ov.type === 'yellow' && ov.fullYellow))) { headCol = OVERLAP_COLOR; bodyCol = OVERLAP_BODY; }
-    else { headCol = '#ffffff'; bodyCol = NORMAL_BODY; }
+    const {headCol, bodyCol} = resolveNoteColor(n, ov);
 
     let nx, nw;
     if (isWide) { nx = padL; nw = colW * 4; }
@@ -1046,25 +1047,15 @@ function drawN() {
 
     // Body pass (normal holds only; wide hold bodies drawn separately earlier)
     if (mode === 'body' && n.duration > 0 && !isWide) {
-      if (ov && ov.type === 'yellow' && !ov.fullYellow) {
-        if (ov.yellowStart > n.startTick) drawBodySeg(nx, padX, nw, n.startTick, ov.yellowStart, NORMAL_BODY);
-        drawBodySeg(nx, padX, nw, ov.yellowStart, ov.yellowEnd, OVERLAP_BODY);
-        if (ov.yellowEnd < ne) drawBodySeg(nx, padX, nw, ov.yellowEnd, ne, NORMAL_BODY);
-      } else if (ov && ov.type === 'clipped') {
-        if (ov.clipStart > n.startTick) drawBodySeg(nx, padX, nw, n.startTick, ov.clipStart, NORMAL_BODY);
-        if (ov.clipEnd < ne) drawBodySeg(nx, padX, nw, ov.clipEnd, ne, NORMAL_BODY);
-      } else {
-        drawBodySeg(nx, padX, nw, n.startTick, ne, bodyCol);
+      for (const seg of splitBodyByOverlap(n, ov, n.startTick, ne, bodyCol)) {
+        drawBodySeg(nx, padX, nw, seg.tkFrom, seg.tkTo, seg.col);
       }
     }
 
     // Head pass (all note types)
     if (mode === 'head') {
-      if (ov && ov.type === 'yellow' && !ov.fullYellow)
-        headCol = (n.startTick >= ov.yellowStart && n.startTick < ov.yellowEnd) ? OVERLAP_COLOR : '#ffffff';
-      ctx.fillStyle = headCol;
-      if (isWide) { ctx.beginPath(); ctx.roundRect(nx + padX, y - noteH / 2, nw - padX * 2, noteH, 3); ctx.fill(); }
-      else ctx.fillRect(nx + padX, y - noteH / 2, nw - padX * 2, noteH);
+      const hc = headColorAtTick(headCol, ov, n.startTick);
+      drawNoteHead(ctx, isWide, nx + padX, y, nw - padX * 2, noteH, hc);
 
       const isSel = selectedNotes.has(n);
       if (isSel) {
@@ -1981,20 +1972,10 @@ function drawS() {
     const ov = _sovM.get(n);
     if (ov && ov.type === 'hidden') continue;
     const li = CHL[n.channel];
-    let bodyCol;
-    if (ov && (ov.type === 'merged' || (ov.type === 'yellow' && ov.fullYellow))) bodyCol = OVERLAP_BODY;
-    else bodyCol = NORMAL_BODY;
+    const {bodyCol} = resolveNoteColor(n, ov);
     if (n.duration > 0) {
-      const st = n.startTick, et = st + n.duration;
-      if (ov && ov.type === 'yellow' && !ov.fullYellow) {
-        if (ov.yellowStart > st) svDrawBodyPoly(n, li, st, ov.yellowStart, NORMAL_BODY);
-        svDrawBodyPoly(n, li, ov.yellowStart, ov.yellowEnd, OVERLAP_BODY);
-        if (ov.yellowEnd < et) svDrawBodyPoly(n, li, ov.yellowEnd, et, NORMAL_BODY);
-      } else if (ov && ov.type === 'clipped') {
-        if (ov.clipStart > st) svDrawBodyPoly(n, li, st, ov.clipStart, NORMAL_BODY);
-        if (ov.clipEnd < et) svDrawBodyPoly(n, li, ov.clipEnd, et, NORMAL_BODY);
-      } else {
-        svDrawBodyPoly(n, li, st, et, bodyCol);
+      for (const seg of splitBodyByOverlap(n, ov, n.startTick, ne, bodyCol)) {
+        svDrawBodyPoly(n, li, seg.tkFrom, seg.tkTo, seg.col);
       }
     }
   }
@@ -2005,50 +1986,31 @@ function drawS() {
     const ov = !n.isWide ? _sovM.get(n) : undefined;
     if (ov && ov.type === 'hidden') continue;
     const li = n.isWide ? 0 : CHL[n.channel];
-    let headCol;
-    if (n.isWide) headCol = WIDE_COLOR;
-    else if (ov && (ov.type === 'merged' || (ov.type === 'yellow' && ov.fullYellow))) headCol = OVERLAP_COLOR;
-    else headCol = '#ffffff';
+    const {headCol} = resolveNoteColor(n, ov);
 
-    // Head for LN (at startTick)
-    if (n.duration > 0) {
-      const y = t2y(n.startTick); const p = svGNX(n, li, n.startTick);
-      if (y >= gy - 10 && y <= gy + gh + 10) {
-        let hc = headCol;
-        if (ov && ov.type === 'yellow' && !ov.fullYellow)
-          hc = (n.startTick >= ov.yellowStart && n.startTick < ov.yellowEnd) ? OVERLAP_COLOR : '#ffffff';
-        ctx.fillStyle = hc; const th = nThk * (n.isWide ? 1 : .9);
-        const pd = n.isWide ? 0 : p.w * 0.05;
-        if (n.isWide) { ctx.beginPath(); ctx.roundRect(p.x, y - th / 2, p.w, th, 2); ctx.fill(); }
-        else ctx.fillRect(p.x + pd, y - th / 2, p.w - pd * 2, th);
-      }
-    } else {
-      // Tap note head
-      const y = t2y(n.startTick); const p = svGNX(n, li, n.startTick);
-      if (y >= gy - 10 && y <= gy + gh + 10) {
-        let hc = headCol;
-        if (ov && ov.type === 'yellow' && !ov.fullYellow)
-          hc = (n.startTick >= ov.yellowStart && n.startTick < ov.yellowEnd) ? OVERLAP_COLOR : '#ffffff';
-        ctx.fillStyle = hc; const th = nThk * (n.isWide ? 1 : .9);
-        const pd = n.isWide ? 0 : p.w * 0.05;
-        if (n.isWide) { ctx.beginPath(); ctx.roundRect(p.x, y - th / 2, p.w, th, 2); ctx.fill(); }
-        else ctx.fillRect(p.x + pd, y - th / 2, p.w - pd * 2, th);
-      }
+    // Head for LN (at startTick) and Tap note head share identical logic —
+    // both fall through to the same primitive call.
+    const y = t2y(n.startTick); const p = svGNX(n, li, n.startTick);
+    if (y >= gy - 10 && y <= gy + gh + 10) {
+      const hc = headColorAtTick(headCol, ov, n.startTick);
+      const th = nThk * (n.isWide ? 1 : .9);
+      const pd = n.isWide ? 0 : p.w * 0.05;
+      drawNoteHead(ctx, n.isWide, p.x + pd, y, p.w - pd * 2, th, hc, 2);
     }
     // Wide note step-tick bridge
     if (n.isWide && isStepTick(n.startTick)) {
-      const y = t2y(n.startTick);
-      if (y >= gy - 10 && y <= gy + gh + 10) {
+      const y2 = t2y(n.startTick);
+      if (y2 >= gy - 10 && y2 <= gy + gh + 10) {
         const stk = n.startTick;
         const shB = getShape(stk - 0.0001), shA = getShape(stk + 0.0001);
         const pls = shB.left, prs = shB.right, cls = shA.left, crs = shA.right;
         const hc = WIDE_COLOR;
         if (prs < cls - 0.1) {
           ctx.strokeStyle = hc; ctx.lineWidth = nThk * 0.9;
-          ctx.beginPath(); ctx.moveTo(p2x(prs), y); ctx.lineTo(p2x(cls), y); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(p2x(prs), y2); ctx.lineTo(p2x(cls), y2); ctx.stroke();
         } else if (crs < pls - 0.1) {
           ctx.strokeStyle = hc; ctx.lineWidth = nThk * 0.9;
-          ctx.beginPath(); ctx.moveTo(p2x(crs), y); ctx.lineTo(p2x(pls), y); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(p2x(crs), y2); ctx.lineTo(p2x(pls), y2); ctx.stroke();
         }
       }
     }
@@ -2918,16 +2880,13 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
         st = Math.max(st, curTk);
         if (st >= et) { ctx.globalAlpha = 1; continue; } // fully consumed
       }
-      if (s.ov && s.ov.type === 'yellow' && !s.ov.fullYellow && !s.isMissed) {
-        if (s.ov.yellowStart > st) drawGFBody(n, s.li, st, s.ov.yellowStart, NORMAL_BODY);
-        const ySt = Math.max(s.ov.yellowStart, st), yEt = Math.min(s.ov.yellowEnd, et);
-        if (ySt < yEt) drawGFBody(n, s.li, ySt, yEt, OVERLAP_BODY);
-        if (s.ov.yellowEnd < et) drawGFBody(n, s.li, Math.max(s.ov.yellowEnd, st), et, NORMAL_BODY);
-      } else if (s.ov && s.ov.type === 'clipped' && !s.isMissed) {
-        if (s.ov.clipStart > st) drawGFBody(n, s.li, st, s.ov.clipStart, NORMAL_BODY);
-        if (s.ov.clipEnd < et) drawGFBody(n, s.li, Math.max(s.ov.clipEnd, st), et, NORMAL_BODY);
-      } else {
-        drawGFBody(n, s.li, st, et, s.bodyCol);
+      // When Missed, render the full body in its default body color, ignoring overlap.
+      const effectiveOv = s.isMissed ? null : s.ov;
+      for (const seg of splitBodyByOverlap(n, effectiveOv, st, et, s.bodyCol)) {
+        // Clamp segment to consumption-trimmed [st, et]
+        const from = Math.max(seg.tkFrom, st);
+        const to = Math.min(seg.tkTo, et);
+        if (from < to) drawGFBody(n, s.li, from, to, seg.col);
       }
     }
     ctx.globalAlpha = 1;
@@ -2945,18 +2904,23 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
       if (s.isHit && !s.isMissed) { ctx.globalAlpha = 1; continue; }
       const hy = tk2y(n.startTick), hp = gNX(n.startTick, n, s.li, false);
       if (hy > gy - 20 && hy < gy + gh + 20) {
-        let hc = drawHead;
-        if (s.ov && s.ov.type === 'yellow' && !s.ov.fullYellow && !s.isMissed)
-          hc = (n.startTick >= s.ov.yellowStart && n.startTick < s.ov.yellowEnd) ? OVERLAP_COLOR : '#ffffff';
-        const th = nThk * (n.isWide ? 1 : .9); ctx.fillStyle = hc;
-        if (n.isWide) { const rx0 = Math.min(hp.x, hp.x + hp.w), rw = Math.abs(hp.w); ctx.beginPath(); ctx.roundRect(rx0, hy - th / 2, rw, th, 4); ctx.fill(); }
-        else { const pd = hp.w * .05; ctx.fillRect(hp.x + pd, hy - th / 2, hp.w - pd * 2, th); }
+        // When Missed, disable partial-yellow reshading to keep baseline color.
+        const effectiveOv = s.isMissed ? null : s.ov;
+        const hc = headColorAtTick(drawHead, effectiveOv, n.startTick);
+        const th = nThk * (n.isWide ? 1 : .9);
+        const rx0 = n.isWide ? Math.min(hp.x, hp.x + hp.w) : hp.x + hp.w * .05;
+        const rw  = n.isWide ? Math.abs(hp.w)              : hp.w - hp.w * .05 * 2;
+        drawNoteHead(ctx, n.isWide, rx0, hy, rw, th, hc, 4);
       }
     } else {
       const y = tk2y(n.startTick); if (y < gy - 20 || y > gy + gh + 20) { ctx.globalAlpha = 1; continue; }
-      const p = gNX(n.startTick, n, s.li, false); const th = nThk * (n.isWide ? 1 : .9); ctx.fillStyle = drawHead;
-      if (n.isWide) { const rx0 = Math.min(p.x, p.x + p.w), rw = Math.abs(p.w); ctx.beginPath(); ctx.roundRect(rx0, y - th / 2, rw, th, 4); ctx.fill(); }
-      else { const pd = p.w * .05; ctx.fillRect(p.x + pd, y - th / 2, p.w - pd * 2, th); }
+      const p = gNX(n.startTick, n, s.li, false);
+      const th = nThk * (n.isWide ? 1 : .9);
+      // Note: v19 does not apply partial-yellow reshading to Tap heads in game mode;
+      // we preserve that by using drawHead directly.
+      const rx0 = n.isWide ? Math.min(p.x, p.x + p.w) : p.x + p.w * .05;
+      const rw  = n.isWide ? Math.abs(p.w)            : p.w - p.w * .05 * 2;
+      drawNoteHead(ctx, n.isWide, rx0, y, rw, th, drawHead, 4);
 
       if (n.isWide && isStepTick(n.startTick)) {
         const stk = n.startTick;
