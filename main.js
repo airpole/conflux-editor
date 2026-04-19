@@ -44,6 +44,11 @@ import {
   resolveNoteColor, headColorAtTick, splitBodyByOverlap, drawNoteHead,
 } from './renderer.js';
 
+import {
+  resetHitScheduler, scheduleHitsounds,
+  resetMissChecker, checkPlayMisses,
+} from './scheduler.js';
+
 
 /** Show a brief toast notification */
 function toast(msg) {
@@ -341,33 +346,8 @@ function playHitAt(when) {
   s.start(Math.max(actx.currentTime, when));
 }
 
-// Hitsound pre-scheduler state
-let _hsScheduledUpTo = -Infinity; // ms up to which hits are scheduled
-let _hsScheduledNotes = new Set(); // notes already scheduled
-
-function resetHitScheduler() {
-  _hsScheduledUpTo = -Infinity;
-  _hsScheduledNotes.clear();
-}
-
-// Schedule hitsounds ahead of time (lookahead window in ms)
-function scheduleHitsounds(curMs, lookaheadMs) {
-  if (!actx || !hitBuf || hitVol <= 0) return;
-  const endMs = curMs + lookaheadMs;
-  if (endMs <= _hsScheduledUpTo) return;
-  const fromMs = Math.max(curMs, _hsScheduledUpTo);
-  _hsScheduledUpTo = endMs;
-  for (const n of D.notes) {
-    if (_hsScheduledNotes.has(n)) continue;
-    const nMs = t2ms(n.startTick);
-    if (nMs >= fromMs && nMs < endMs) {
-      _hsScheduledNotes.add(n);
-      // Convert ms to AudioContext time
-      const audioTime = actx.currentTime + (nMs - curMs) / 1000;
-      playHitAt(audioTime);
-    }
-  }
-}
+// Hitsound scheduling moved to scheduler.js (binary-search + pointer).
+// main.js uses it via imported resetHitScheduler / scheduleHitsounds.
 
 // Playback speed (0.5 - 1.0)
 let playbackRate = 1.0;
@@ -2574,7 +2554,7 @@ function edSeek(w, v) {
 function pvToggle() {
   if (pvOn) { pvStop(); return; }
   pvOn = true; initAud(); hitSet.clear(); hitEndSet.clear(); pvHitEffects = []; pvLastJudg = null;
-  resetHitScheduler();
+  resetHitScheduler(pvMs);
   $('pvPlayBtn').textContent = '⏸';
   if (pvFSOn) $('pvFSPlayBtn').textContent = '⏸';
   pvMs0 = pvMs; pvT0 = performance.now();
@@ -2594,7 +2574,9 @@ function pvToggle() {
       startAud(D.metadata.offset - globalOffset);
     }
     // Pre-schedule hitsounds 150ms ahead (decoupled from rendering)
-    if (pvAudioStarted) scheduleHitsounds(pvMs, 150);
+    if (pvAudioStarted && actx && hitBuf && hitVol > 0) {
+      scheduleHitsounds(pvMs, 150, actx, playHitAt);
+    }
     drawP();
     pvRAF = requestAnimationFrame(frame);
   }
@@ -2611,7 +2593,7 @@ function pvStop() {
 function pvRestart() {
   pvStop(); pvMs = -LEAD_IN_MS;
   hitSet.clear(); hitEndSet.clear(); pvHitEffects = []; pvLastJudg = null;
-  resetHitScheduler();
+  resetHitScheduler(pvMs);
   drawP();
 }
 
@@ -2620,7 +2602,7 @@ function pvSeekTo(v) {
   if (wasPlaying) pvStop();
   pvMs = (v / 1000) * totalMs;
   hitSet.clear(); hitEndSet.clear(); pvHitEffects = []; pvLastJudg = null;
-  resetHitScheduler();
+  resetHitScheduler(pvMs);
   drawP();
   if (wasPlaying) pvToggle();
 }
@@ -3936,17 +3918,8 @@ function applyJudgment(note, diff, curMs) {
   playHit();
 }
 
-function checkPlayMisses(curMs) {
-  for (const n of D.notes) {
-    if (playHitMap.has(n) || playMissSet.has(n)) continue;
-    const missWindow = n.isWide ? JUDGE_WIDE_SYNC : JUDGE_GOOD;
-    if (t2ms(n.startTick) + missWindow < curMs) {
-      playMissSet.add(n);
-      playCombo = 0;
-      playJudgQueue.push({type: 'MISS', diff: undefined, t: curMs});
-    }
-  }
-}
+// checkPlayMisses moved to scheduler.js (binary-search + pointer).
+// main.js adapts via a small wrapper at the call site.
 
 // ============================================================
 //  PLAY MODE — KEY INPUT
@@ -4010,7 +3983,17 @@ function playLoop(ts) {
     playAudioStarted = true;
     startAud(D.metadata.offset - globalOffset);
   }
-  if (curMs >= 0) checkPlayMisses(curMs);
+  if (curMs >= 0) {
+    checkPlayMisses(
+      curMs,
+      n => playHitMap.has(n) || playMissSet.has(n),
+      n => {
+        playMissSet.add(n);
+        playCombo = 0;
+        playJudgQueue.push({type: 'MISS', diff: undefined, t: curMs});
+      }
+    );
+  }
   const cv = playFullscreen ? $('playFSCv') : $('plCv');
   if (cv) drawPlayScreen(cv, curMs);
   if (curMs > (totalMs || 0) + 2000) { stopPlay(); return; }
@@ -4028,6 +4011,7 @@ function startPlay(fromBeginning) {
   playHitMap.clear(); playMissSet.clear(); playEffects = [];
   playCombo = 0; playMaxCombo = 0; playJudgQueue = [];
   playHoldState = {}; playKeyHeld.clear();
+  resetMissChecker(offMs);
 
   $('playStartBtns').style.display = 'none';
   $('playStopBtn').style.display = '';

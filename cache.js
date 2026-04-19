@@ -22,7 +22,7 @@ const caches = new Map();
  */
 export function defineCache(key, deps, build) {
   if (caches.has(key)) throw new Error(`Cache already defined: ${key}`);
-  caches.set(key, { deps, build, value: undefined, dirty: true });
+  caches.set(key, { deps, build, value: undefined, dirty: true, version: 0 });
 }
 
 /** Read a cache's value. Builds on first access and after invalidation. */
@@ -32,8 +32,20 @@ export function get(key) {
   if (c.dirty) {
     c.value = c.build();
     c.dirty = false;
+    c.version++;
   }
   return c.value;
+}
+
+/**
+ * Return the current version of a cache. Version increments every time the
+ * cache is rebuilt. Callers with pointer state into a cached array should
+ * invalidate their pointer when the version changes.
+ */
+export function getVersion(key) {
+  const c = caches.get(key);
+  if (!c) throw new Error(`Unknown cache: ${key}`);
+  return c.version;
 }
 
 /**
