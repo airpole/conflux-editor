@@ -1998,20 +1998,24 @@ function drawS() {
       const pd = n.isWide ? 0 : p.w * 0.05;
       drawNoteHead(ctx, n.isWide, p.x + pd, y, p.w - pd * 2, th, hc, 2);
     }
-    // Wide note step-tick bridge
+    // Wide note step-tick bridge (Phase 3-4):
+    // The wide head is a thin horizontal strip. At a step tick the shape
+    // jumps from [pls, prs] to [cls, crs]; the strip drawn just-before and
+    // just-after the step would otherwise have a visible cut at any boundary
+    // that doesn't overlap. Drawing a single bridge from min..max of all
+    // four boundary positions covers every case (gap, partial overlap, or
+    // same-direction shift) with one call.
     if (n.isWide && isStepTick(n.startTick)) {
       const y2 = t2y(n.startTick);
       if (y2 >= gy - 10 && y2 <= gy + gh + 10) {
         const stk = n.startTick;
         const shB = getShape(stk - 0.0001), shA = getShape(stk + 0.0001);
         const pls = shB.left, prs = shB.right, cls = shA.left, crs = shA.right;
-        const hc = WIDE_COLOR;
-        if (prs < cls - 0.1) {
-          ctx.strokeStyle = hc; ctx.lineWidth = nThk * 0.9;
-          ctx.beginPath(); ctx.moveTo(p2x(prs), y2); ctx.lineTo(p2x(cls), y2); ctx.stroke();
-        } else if (crs < pls - 0.1) {
-          ctx.strokeStyle = hc; ctx.lineWidth = nThk * 0.9;
-          ctx.beginPath(); ctx.moveTo(p2x(crs), y2); ctx.lineTo(p2x(pls), y2); ctx.stroke();
+        const lo = Math.min(pls, prs, cls, crs);
+        const hi = Math.max(pls, prs, cls, crs);
+        if (hi - lo > 0.1) {
+          ctx.strokeStyle = WIDE_COLOR; ctx.lineWidth = nThk * 0.9;
+          ctx.beginPath(); ctx.moveTo(p2x(lo), y2); ctx.lineTo(p2x(hi), y2); ctx.stroke();
         }
       }
     }
@@ -2882,12 +2886,13 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
         const shB = getShape(stk - 0.0001), shA = getShape(stk + 0.0001);
         const pls = shB.left, prs = shB.right, cls = shA.left, crs = shA.right;
         const noteY = tk2y(stk);
-        if (prs < cls - 0.1) {
+        // Phase 3-4: bridge spans min..max of all four boundaries to cover
+        // gap / partial-overlap / same-direction-shift cases uniformly.
+        const lo = Math.min(pls, prs, cls, crs);
+        const hi = Math.max(pls, prs, cls, crs);
+        if (hi - lo > 0.1) {
           ctx.strokeStyle = drawHead; ctx.lineWidth = nThk * 0.9;
-          ctx.beginPath(); ctx.moveTo(p2x(prs), noteY); ctx.lineTo(p2x(cls), noteY); ctx.stroke();
-        } else if (crs < pls - 0.1) {
-          ctx.strokeStyle = drawHead; ctx.lineWidth = nThk * 0.9;
-          ctx.beginPath(); ctx.moveTo(p2x(crs), noteY); ctx.lineTo(p2x(pls), noteY); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(p2x(lo), noteY); ctx.lineTo(p2x(hi), noteY); ctx.stroke();
         }
       }
     }
