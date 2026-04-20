@@ -171,3 +171,29 @@ export const EditTimeSig = (tick, oldTs, newTs) => cmd(
   },
   ['timeSignatures']
 );
+
+// ---- Shape events ----
+
+/**
+ * Delete multiple shape events at once. Reserved for future use when Shape
+ * drag/edit operations migrate to Command pattern (Phase 3-5). Phase 3-1
+ * (multi-delete via sel+del) continues to use the saveHist('s') snapshot
+ * stack to keep undo ordering interleaved with existing Shape edits.
+ *
+ * `events` is an array of shape event references (identity, not snapshots).
+ * Init events (easing === null) are silently kept — Left/Right init anchor
+ * rows cannot be removed.
+ */
+export const DeleteShapeEvents = (events) => {
+  const deletable = events.filter(e => e.easing !== null);
+  return cmd(
+    'DeleteShapeEvents',
+    () => {
+      D.shapeEvents = D.shapeEvents.filter(e => !deletable.includes(e));
+    },
+    () => {
+      D.shapeEvents.push(...deletable);
+    },
+    ['shapeEvents']
+  );
+};

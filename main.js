@@ -1622,10 +1622,47 @@ function teEditByIdx(sortedIdx) {
 // ============================================================
 //  SHAPE TAB
 // ============================================================
+/**
+ * Delete the current Shape selection via saveHist snapshot. Shared by the
+ * toolbar sel+del combo (setST('del')) and the Delete/Backspace keyboard
+ * handler. Init events (easing === null) are kept silently — the Left/Right
+ * anchor rows are not user-deletable.
+ *
+ * Returns true if at least one non-init event was removed.
+ */
+function doShapeSelectionDelete() {
+  if (selectedShapeEvts.size === 0) return false;
+  const count = selectedShapeEvts.size;
+  const initSkipped = [...selectedShapeEvts].filter(e => e.easing === null).length;
+  const actualCount = count - initSkipped;
+  if (actualCount === 0) {
+    toast(`Init 이벤트는 삭제할 수 없습니다`);
+    return false;
+  }
+  D.shapeEvents = D.shapeEvents.filter(e => !selectedShapeEvts.has(e) || e.easing === null);
+  selectedShapeEvts.clear();
+  normalizeShapeChain(false); normalizeShapeChain(true);
+  saveHist('s'); drawS();
+  toast(`${actualCount}개 shape 삭제${initSkipped ? ` (Init ${initSkipped}개 유지)` : ''}`);
+  return true;
+}
+
 function setST(t) {
+  // Phase 3-1: Sel + Del combo on the Shape toolbar mirrors the Notes tab.
+  // In sel mode with an active selection, tapping Del deletes instead of
+  // switching tools.
+  if (t === 'del' && sTool === 'sel' && selectedShapeEvts.size > 0) {
+    doShapeSelectionDelete();
+    return;
+  }
   sTool = t; cancelArc();
   if (t !== 'sel') selectedShapeEvts.clear();
-  document.querySelectorAll('#stb .t[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  document.querySelectorAll('#stb .t[data-t]').forEach(b => {
+    b.classList.remove('on', 'sel-on');
+    if (b.dataset.t === t) {
+      b.classList.add(t === 'sel' ? 'sel-on' : 'on');
+    }
+  });
 }
 function pickEase(name) {
   $('easeS').value = name;
@@ -3559,7 +3596,19 @@ function drawPlayScreen(cv, curMs) {
   drawGameFrame(ctx, gx, gy, gw, gh, curMs, {
     hitEffects: playEffects, hitMap: playHitMap, missSet: playMissSet, showMissColor: true
   });
-  // Unified HUD for play mode
+  drawPlayHUD(ctx, gx, gy, gw, gh, curMs);
+  ctx.restore();
+}
+
+/**
+ * Draw the unified HUD (combo / judgment / counters / title / score / pause button).
+ * Pulls numbers from current play state (playHitMap, playMissSet, playCombo, playJudgQueue).
+ *
+ * v21: extracted as a helper so drawPlayIdle can render the same HUD over the
+ * static preview. HUD is always visible on the Play tab — only the canvas size
+ * differs between idle (inline) and session (fullscreen).
+ */
+function drawPlayHUD(ctx, gx, gy, gw, gh, curMs) {
   const sCount = [...playHitMap.values()].filter(v => v.type === 'SYNC').length;
   const pCount = [...playHitMap.values()].filter(v => v.type === 'PERFECT').length;
   const gCount = [...playHitMap.values()].filter(v => v.type === 'GOOD').length;
@@ -3575,7 +3624,6 @@ function drawPlayScreen(cv, curMs) {
     accuracy: acc,
     mode: 'play'
   });
-  ctx.restore();
 }
 
 // Shared empty stubs for idle Play rendering (new drawGameFrame contract:
@@ -3595,10 +3643,12 @@ function drawPlayIdle() {
   if (cw / ch_ > asp) { gh = ch_; gw = gh * asp; gx = (cw - gw) / 2; gy = 0; } else { gw = cw; gh = gw / asp; gx = 0; gy = (ch_ - gh) / 2; }
   ctx.fillStyle = '#050508'; ctx.fillRect(gx, gy, gw, gh);
   ctx.save(); ctx.beginPath(); ctx.rect(gx, gy, gw, gh); ctx.clip();
-  // Show static frame at current shared position — nothing hit, nothing missed.
+  // Show static frame at current shared position — no live hits/misses driven from this draw,
+  // but still show HUD so the user sees title/difficulty/score-so-far at all times on Play.
   drawGameFrame(ctx, gx, gy, gw, gh, sharedMs, {
     hitEffects: [], hitMap: _EMPTY_HITMAP, missSet: _EMPTY_MISSSET, showMissColor: false
   });
+  drawPlayHUD(ctx, gx, gy, gw, gh, sharedMs);
   ctx.restore();
 }
 
@@ -4064,13 +4114,7 @@ document.addEventListener('keydown', (e) => {
       saveHist('n'); drawN();
       toast(`${count}개 노트 삭제`);
     } else if (activeTab === 'shape' && selectedShapeEvts.size > 0) {
-      const count = selectedShapeEvts.size;
-      D.shapeEvents = D.shapeEvents.filter(e => !selectedShapeEvts.has(e) || e.easing === null);
-      const initSkipped = [...selectedShapeEvts].filter(e => e.easing === null).length;
-      selectedShapeEvts.clear();
-      normalizeShapeChain(false); normalizeShapeChain(true);
-      saveHist('s'); drawS();
-      toast(`${count - initSkipped}개 shape 삭제${initSkipped ? ` (Init ${initSkipped}개 유지)` : ''}`);
+      doShapeSelectionDelete();
     }
     return;
   }
