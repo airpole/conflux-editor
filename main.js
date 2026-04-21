@@ -1991,37 +1991,30 @@ function drawS() {
 
     // Head for LN (at startTick) and Tap note head share identical logic —
     // both fall through to the same primitive call.
-    const y = t2y(n.startTick); const p = svGNX(n, li, n.startTick);
+    //
+    // Phase 3-4: at a step tick, a wide head's natural position would be the
+    // post-step polygon [cls, crs] only — leaving a visual cut against the
+    // pre-step polygon [pls, prs]. We extend the head's x range to
+    // [min(pls,cls), max(prs,crs)] (Rule B: left-pair min, right-pair max)
+    // so that one rounded rectangle covers both step polygons. This produces
+    // a single, seamless wide head instead of two heads + a stroke bridge.
+    const y = t2y(n.startTick);
     if (y >= gy - 10 && y <= gy + gh + 10) {
       const hc = headColorAtTick(headCol, ov, n.startTick);
       const th = nThk * (n.isWide ? 1 : .9);
-      const pd = n.isWide ? 0 : p.w * 0.05;
-      drawNoteHead(ctx, n.isWide, p.x + pd, y, p.w - pd * 2, th, hc, 2);
-    }
-    // Wide note step-tick bridge (Phase 3-4):
-    // The wide head is a thin horizontal strip. At a step tick the shape
-    // jumps from [pls, prs] to [cls, crs]; the strip drawn just-before and
-    // just-after the step would otherwise have a visible cut at any boundary
-    // that doesn't overlap.
-    //
-    // Rule B: bridge spans [min(pls, cls), max(prs, crs)] — left-pair min
-    // to right-pair max. This stays inside the union of the two polygons
-    // (each itself spanning [left, right]) without leaking past the actual
-    // boundaries. When LR-inverted shapes exist (pre-Phase-3-5 state), this
-    // produces a tighter, more natural bridge than min/max over all four.
-    if (n.isWide && isStepTick(n.startTick)) {
-      const y2 = t2y(n.startTick);
-      if (y2 >= gy - 10 && y2 <= gy + gh + 10) {
+      let hx, hw;
+      if (n.isWide && isStepTick(n.startTick)) {
         const stk = n.startTick;
         const shB = getShape(stk - 0.0001), shA = getShape(stk + 0.0001);
-        const pls = shB.left, prs = shB.right, cls = shA.left, crs = shA.right;
-        const lo = Math.min(pls, cls);
-        const hi = Math.max(prs, crs);
-        if (hi - lo > 0.1) {
-          ctx.strokeStyle = WIDE_COLOR; ctx.lineWidth = nThk * 0.9;
-          ctx.beginPath(); ctx.moveTo(p2x(lo), y2); ctx.lineTo(p2x(hi), y2); ctx.stroke();
-        }
+        const lo = Math.min(shB.left,  shA.left);
+        const hi = Math.max(shB.right, shA.right);
+        hx = p2x(lo); hw = p2x(hi) - hx;
+      } else {
+        const p = svGNX(n, li, n.startTick);
+        const pd = n.isWide ? 0 : p.w * 0.05;
+        hx = p.x + pd; hw = p.w - pd * 2;
       }
+      drawNoteHead(ctx, n.isWide, hx, y, hw, th, hc, 2);
     }
   }
 
@@ -2877,29 +2870,26 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
       }
     } else {
       const y = tk2y(n.startTick); if (y < gy - 20 || y > gy + gh + 20) { ctx.globalAlpha = 1; continue; }
-      const p = gNX(n.startTick, n, s.li, false);
       const th = nThk * (n.isWide ? 1 : .9);
       // Note: v19 does not apply partial-yellow reshading to Tap heads in game mode;
       // we preserve that by using drawHead directly.
-      const rx0 = n.isWide ? Math.min(p.x, p.x + p.w) : p.x + p.w * .05;
-      const rw  = n.isWide ? Math.abs(p.w)            : p.w - p.w * .05 * 2;
-      drawNoteHead(ctx, n.isWide, rx0, y, rw, th, drawHead, 4);
-
+      //
+      // Phase 3-4: at a step tick, extend wide head x range to
+      // [min(pls,cls), max(prs,crs)] (Rule B) so a single rounded rectangle
+      // covers both pre-step and post-step polygons. See drawS for rationale.
+      let rx0, rw;
       if (n.isWide && isStepTick(n.startTick)) {
         const stk = n.startTick;
         const shB = getShape(stk - 0.0001), shA = getShape(stk + 0.0001);
-        const pls = shB.left, prs = shB.right, cls = shA.left, crs = shA.right;
-        const noteY = tk2y(stk);
-        // Phase 3-4 (Rule B): bridge spans [min(pls,cls), max(prs,crs)].
-        // Left-pair min to right-pair max stays inside the union of the two
-        // step polygons even when LR-inverted shapes exist.
-        const lo = Math.min(pls, cls);
-        const hi = Math.max(prs, crs);
-        if (hi - lo > 0.1) {
-          ctx.strokeStyle = drawHead; ctx.lineWidth = nThk * 0.9;
-          ctx.beginPath(); ctx.moveTo(p2x(lo), noteY); ctx.lineTo(p2x(hi), noteY); ctx.stroke();
-        }
+        const lo = Math.min(shB.left,  shA.left);
+        const hi = Math.max(shB.right, shA.right);
+        rx0 = p2x(lo); rw = p2x(hi) - rx0;
+      } else {
+        const p = gNX(n.startTick, n, s.li, false);
+        rx0 = n.isWide ? Math.min(p.x, p.x + p.w) : p.x + p.w * .05;
+        rw  = n.isWide ? Math.abs(p.w)            : p.w - p.w * .05 * 2;
       }
+      drawNoteHead(ctx, n.isWide, rx0, y, rw, th, drawHead, 4);
     }
     ctx.globalAlpha = 1;
   }
