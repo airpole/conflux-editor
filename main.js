@@ -2002,17 +2002,21 @@ function drawS() {
     // The wide head is a thin horizontal strip. At a step tick the shape
     // jumps from [pls, prs] to [cls, crs]; the strip drawn just-before and
     // just-after the step would otherwise have a visible cut at any boundary
-    // that doesn't overlap. Drawing a single bridge from min..max of all
-    // four boundary positions covers every case (gap, partial overlap, or
-    // same-direction shift) with one call.
+    // that doesn't overlap.
+    //
+    // Rule B: bridge spans [min(pls, cls), max(prs, crs)] — left-pair min
+    // to right-pair max. This stays inside the union of the two polygons
+    // (each itself spanning [left, right]) without leaking past the actual
+    // boundaries. When LR-inverted shapes exist (pre-Phase-3-5 state), this
+    // produces a tighter, more natural bridge than min/max over all four.
     if (n.isWide && isStepTick(n.startTick)) {
       const y2 = t2y(n.startTick);
       if (y2 >= gy - 10 && y2 <= gy + gh + 10) {
         const stk = n.startTick;
         const shB = getShape(stk - 0.0001), shA = getShape(stk + 0.0001);
         const pls = shB.left, prs = shB.right, cls = shA.left, crs = shA.right;
-        const lo = Math.min(pls, prs, cls, crs);
-        const hi = Math.max(pls, prs, cls, crs);
+        const lo = Math.min(pls, cls);
+        const hi = Math.max(prs, crs);
         if (hi - lo > 0.1) {
           ctx.strokeStyle = WIDE_COLOR; ctx.lineWidth = nThk * 0.9;
           ctx.beginPath(); ctx.moveTo(p2x(lo), y2); ctx.lineTo(p2x(hi), y2); ctx.stroke();
@@ -2886,10 +2890,11 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
         const shB = getShape(stk - 0.0001), shA = getShape(stk + 0.0001);
         const pls = shB.left, prs = shB.right, cls = shA.left, crs = shA.right;
         const noteY = tk2y(stk);
-        // Phase 3-4: bridge spans min..max of all four boundaries to cover
-        // gap / partial-overlap / same-direction-shift cases uniformly.
-        const lo = Math.min(pls, prs, cls, crs);
-        const hi = Math.max(pls, prs, cls, crs);
+        // Phase 3-4 (Rule B): bridge spans [min(pls,cls), max(prs,crs)].
+        // Left-pair min to right-pair max stays inside the union of the two
+        // step polygons even when LR-inverted shapes exist.
+        const lo = Math.min(pls, cls);
+        const hi = Math.max(prs, crs);
         if (hi - lo > 0.1) {
           ctx.strokeStyle = drawHead; ctx.lineWidth = nThk * 0.9;
           ctx.beginPath(); ctx.moveTo(p2x(lo), noteY); ctx.lineTo(p2x(hi), noteY); ctx.stroke();
