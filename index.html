@@ -27,6 +27,8 @@ button,select{font-family:inherit}
 .t.ease-on{background:#7c3aed;color:#fff;border-color:#7c3aed}
 .t.bpm-on{background:#9333ea;color:#fff;border-color:#9333ea}
 .t.sel-on{background:var(--green);color:#000;border-color:var(--green)}
+/* Phase 4: long-press visual feedback (Paste button 500ms hold → flip-paste) */
+.t.lp{background:var(--orange);color:#000;border-color:var(--orange);transition:background .15s,color .15s,border-color .15s}
 .ts{width:1px;height:14px;background:var(--brd);flex-shrink:0}
 .trow{display:flex;align-items:center;gap:2px;width:100%;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none}
 .trow::-webkit-scrollbar{display:none}
@@ -130,8 +132,8 @@ canvas{display:block;position:absolute;top:0;left:0}
       </div>
       <div class="trow">
         <button class="t" id="nCopyBtn" onclick="doCopy()" style="border-color:var(--green)" title="Copy [Ctrl+C]">Copy</button>
-        <button class="t" id="nPasteBtn" onclick="doPaste(false)" style="border-color:var(--green)" title="Paste [Ctrl+V]">Paste</button>
-        <button class="t" id="nFlipBtn" onclick="doPaste(true)" style="border-color:var(--orange)" title="Sel+Flip: 선택 뒤집기 / Paste mirrored [Ctrl+F]">Flip</button>
+        <button class="t" id="nPasteBtn" style="border-color:var(--green)" title="Paste [Ctrl+V] / 길게 누르기: Flip-paste">Paste</button>
+        <button class="t" id="nFlipBtn" onclick="doFlipSelected()" style="border-color:var(--orange)" title="선택 노트 좌우 반전 [Ctrl+F]">Flip</button>
         <button class="t" id="ngBtn" onclick="toggleGP('ngp')" title="Grid division [G]">1/2</button>
         <button class="t on" id="nFollowBtn" onclick="toggleFollow()" style="border-color:#ffe44a" title="Follow playback [F]">Fol</button>
         <button class="t" onclick="nZ(1)" title="Zoom in [+]">+</button>

@@ -620,23 +620,21 @@ function doCopy() {
   toast(`Copied ${clipboard.length} note(s)`);
 }
 
+// Channel mirror map (Line 1↔4, 2↔3; Wide stays on 0)
+const MIRROR_CH = {1:4, 2:3, 3:2, 4:1, 0:0};
+
+/**
+ * Paste clipboard contents at the current scroll tick.
+ *
+ * Phase 4: `mirror=true` (flip-paste) is now ONLY reachable via long-press on
+ * the Paste button (500ms) or by explicit keyboard shortcut wiring. The Flip
+ * button no longer calls this — it calls `doFlipSelected()` (in-place flip).
+ * The old sel+flip combo has been removed: pressing Flip on a selection used
+ * to conditionally branch based on clipboard state, which was confusing.
+ */
 function doPaste(mirror) {
-  // Sel + Flip combo: if mirror mode and notes are selected, flip them in place
-  if (mirror && nTool === 'sel' && selectedNotes.size > 0) {
-    const MIRROR_CH = {1:4, 2:3, 3:2, 4:1, 0:0};
-    for (const n of selectedNotes) {
-      if (!n.isWide) {
-        n.channel = MIRROR_CH[n.channel] !== undefined ? MIRROR_CH[n.channel] : n.channel;
-      }
-    }
-    saveHist('n');
-    toast(`${selectedNotes.size}개 노트 뒤집기`);
-    drawN();
-    return;
-  }
   if (clipboard.length === 0) { toast('Clipboard empty'); return; }
   const baseTick = snap(nScr, nGD);
-  const MIRROR_CH = {1:4, 2:3, 3:2, 4:1, 0:0};
   const newNotes = [];
   for (const c of clipboard) {
     let ch = c.channel, isW = c.isWide;
@@ -654,6 +652,25 @@ function doPaste(mirror) {
   saveHist('n');
   toast(`${mirror ? 'Flip-' : ''}Pasted ${newNotes.length} note(s)`);
   drawN();
+}
+
+/**
+ * Phase 4: Flip selected notes in place (Line 1↔4, 2↔3). Wide notes are
+ * skipped (they occupy channel 0 and have no left/right sibling). Uses the
+ * saveHist('n') snapshot pattern to stay consistent with the rest of the
+ * Notes tab — a future Phase 7-1 pass may migrate this to a Command.
+ */
+function doFlipSelected() {
+  if (selectedNotes.size === 0) { toast('No notes selected'); return; }
+  let count = 0;
+  for (const n of selectedNotes) {
+    if (n.isWide) continue;
+    const next = MIRROR_CH[n.channel];
+    if (next !== undefined && next !== n.channel) { n.channel = next; count++; }
+  }
+  if (count === 0) { toast('Nothing to flip'); return; }
+  saveHist('n'); drawN();
+  toast(`${count}개 노트 뒤집기`);
 }
 
 // ============================================================
@@ -4082,7 +4099,9 @@ document.addEventListener('keydown', (e) => {
     }
     if (key === 'f') {
       e.preventDefault();
-      if (activeTab === 'note') doPaste(true);
+      // Phase 4: Ctrl+F in Notes → flip selected in place (matches Flip button).
+      // Shape tab keeps its existing flip-paste semantics for Ctrl+F.
+      if (activeTab === 'note') doFlipSelected();
       else if (activeTab === 'shape') doShapePaste(true);
       return;
     }
@@ -4219,7 +4238,7 @@ Object.assign(window, {
   // Undo / redo
   undo, redo,
   // Notes editing
-  doCopy, doPaste, nZ, toggleFollow, toggleGP, closeGP,
+  doCopy, doPaste, doFlipSelected, nZ, toggleFollow, toggleGP, closeGP,
   // Shapes editing
   doShapeCopy, doShapePaste, sZ, toggleSFollow, toggleMirror, cyclePosSnap,
   // Grid pickers (referenced via template string `${cb}(${d})` in buildGP)
@@ -4283,6 +4302,55 @@ window.addEventListener('DOMContentLoaded', () => {
   // v21: autoplay toggle in the Play tab control bar
   const autoChk = $('playAutoChk');
   if (autoChk) autoChk.addEventListener('change', e => { playAutoplay = e.target.checked; });
+
+  // Phase 4: Long-press on Paste button → flip-paste (500ms).
+  // Short tap → normal paste. Finger drift >10px cancels (scroll protection).
+  // We replace the inline onclick binding with pointer event handling so the
+  // short-tap and long-press paths are fully exclusive (never both fire).
+  (function initPasteLongPress() {
+    const btn = $('nPasteBtn');
+    if (!btn) return;
+    btn.removeAttribute('onclick');
+    btn.onclick = null;
+
+    let lpTimer = null;
+    let startX = 0, startY = 0;
+
+    const clearLP = () => {
+      if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+      btn.classList.remove('lp');
+    };
+
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      startX = e.clientX; startY = e.clientY;
+      btn.classList.add('lp');
+      lpTimer = setTimeout(() => {
+        lpTimer = null;
+        btn.classList.remove('lp');
+        doPaste(true); // flip-paste on 500ms hold
+      }, 500);
+    });
+
+    btn.addEventListener('pointermove', (e) => {
+      if (!lpTimer) return;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      // ~10px radius. Covers accidental finger drift and rules out scroll-intent.
+      if (dx * dx + dy * dy > 100) clearLP();
+    });
+
+    btn.addEventListener('pointerup', () => {
+      if (lpTimer) {
+        // Released before 500ms → short tap = normal paste
+        clearTimeout(lpTimer); lpTimer = null;
+        btn.classList.remove('lp');
+        doPaste(false);
+      }
+      // If lpTimer is null here, either long-press already fired or we canceled.
+    });
+
+    btn.addEventListener('pointercancel', clearLP);
+  })();
   
   compBPM(); updateTotalMs(); saveHist('n'); saveHist('s'); saveHist('m');
   buildGP('ngp', nGD, 'pickNG'); buildGP('sgp', sGD, 'pickSG');
