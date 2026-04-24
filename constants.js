@@ -24,6 +24,7 @@ export const OVERLAP_COLOR = '#FFD060'; // Gold for overlapping notes on Lines 2
 export const OVERLAP_BODY  = '#C89830'; // Dark gold for overlap LN body (solid, no alpha)
 export const NORMAL_BODY   = '#8888a0'; // Muted blue-gray for normal LN body (solid, no alpha)
 export const TEXT_COLOR    = '#4ae0ff'; // Cyan for text events
+export const INVALID_COLOR = '#ff3040'; // Red for Line 1/4 overlap warning (Phase 5)
 
 // ---- Grid ----
 export const GDIVS = [1,2,3,4,6,8,12,16,24,32,48,64];

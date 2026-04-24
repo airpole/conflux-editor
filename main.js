@@ -7,6 +7,7 @@
 import {
   $, TPB, CHL, KEY2LINE, OVERLAP_CHANNELS,
   WIDE_COLOR, WIDE_BODY, OVERLAP_COLOR, OVERLAP_BODY, NORMAL_BODY, TEXT_COLOR,
+  INVALID_COLOR,
   GDIVS, LEAD_IN_MS, TAB_MAP,
   DEFAULT_KEYS,
   JUDGE_SYNC, JUDGE_PERFECT, JUDGE_GOOD, JUDGE_WIDE_SYNC,
@@ -673,6 +674,31 @@ function doFlipSelected() {
   toast(`${count}개 노트 뒤집기`);
 }
 
+/**
+ * Phase 5: Shift all selected non-wide notes by delta (+1 right / -1 left).
+ * Group-solidarity clamp: if ANY selected non-wide note would cross the
+ * 1..4 boundary, NO note moves (Q2-C). Wide notes are excluded from the
+ * boundary check and stay on channel 0 regardless.
+ *
+ * Caller is responsible for invalidateNoteOverlaps()/drawN() and saveHist.
+ * Returns true if the shift actually applied, false if blocked by the clamp
+ * (so drag can stop advancing its hysteresis anchor at the boundary).
+ */
+function shiftSelectedByDelta(delta) {
+  const targets = [];
+  for (const n of selectedNotes) { if (!n.isWide) targets.push(n); }
+  if (targets.length === 0) return false;
+  let minCh = Infinity, maxCh = -Infinity;
+  for (const n of targets) {
+    if (n.channel < minCh) minCh = n.channel;
+    if (n.channel > maxCh) maxCh = n.channel;
+  }
+  if (delta > 0 && maxCh + delta > 4) return false;
+  if (delta < 0 && minCh + delta < 1) return false;
+  for (const n of targets) n.channel += delta;
+  return true;
+}
+
 // ============================================================
 //  NOTES TAB
 // ============================================================
@@ -1038,6 +1064,21 @@ function drawN() {
       const hc = headColorAtTick(headCol, ov, n.startTick);
       drawNoteHead(ctx, isWide, nx + padX, y, nw - padX * 2, noteH, hc);
 
+      // Phase 5: Line 1/4 invalid-overlap warning (red border + halo).
+      // Drawn BEFORE the green selection border so selection still wins
+      // visually when both apply (user can see "this one is selected AND
+      // has a problem"). Wide notes cannot be invalid (they're channel 0).
+      if (ov && ov.type === 'invalid') {
+        ctx.save();
+        ctx.strokeStyle = INVALID_COLOR;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = INVALID_COLOR;
+        ctx.shadowBlur = 8;
+        ctx.strokeRect(nx + padX - 1, y - noteH / 2 - 1, nw - padX * 2 + 2, noteH + 2);
+        ctx.strokeRect(nx + padX - 1, y - noteH / 2 - 1, nw - padX * 2 + 2, noteH + 2);
+        ctx.restore();
+      }
+
       const isSel = selectedNotes.has(n);
       if (isSel) {
         ctx.strokeStyle = '#4aff8a'; ctx.lineWidth = 2;
@@ -1125,7 +1166,9 @@ function drawN() {
   let dragX0, dragY0; // start position for drag-select (in canvas coords)
   let dragRect = null; // {x0, y0, x1, y1} in canvas coords during drag
   let dragMove = false; // true if dragging to move selected notes
-  let dragMoveTk0 = 0; // start tick for drag-move
+  let dragMoveTk0 = 0; // start tick for drag-move (y-axis anchor; updated every frame)
+  let dragMoveX0 = 0;  // Phase 5: canvas x at drag start (x-axis hysteresis origin)
+  let dragMoveColDelta = 0; // Phase 5: accumulated column steps taken this drag
   let longPressTimer = null; // long press timer for quick-LN
   let longPressFired = false; // true if long press already placed a note
 
@@ -1198,6 +1241,8 @@ function drawN() {
               if (found && selectedNotes.has(found)) {
                 dragMove = true;
                 dragMoveTk0 = snap(clickTk, nGD);
+                dragMoveX0 = x;          // Phase 5: x-axis anchor
+                dragMoveColDelta = 0;    // Phase 5: reset step accumulator
                 return;
               }
             }
@@ -1216,10 +1261,12 @@ function drawN() {
     if (dragMove) {
       cancelLongPress();
       const cv = $('nCv'), rect = cv.getBoundingClientRect();
+      const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       const m = nMet(); if (!m) return;
       const dy = e.clientY - ty0;
       if (Math.abs(dy) > 4) moved = true;
+      let changed = false;
       if (moved) {
         const curTk = snap(nScr + (m.ch - y) * m.tpp, nGD);
         const delta = curTk - dragMoveTk0;
@@ -1230,9 +1277,35 @@ function drawN() {
           }
           invalidateNoteOverlaps();
           dragMoveTk0 = curTk;
-          drawN();
+          changed = true;
         }
       }
+
+      // Phase 5: x-axis hysteresis — cross `colW * 0.5` from the current
+      // anchor to shift one column. `while` handles fast flicks where a
+      // single frame's dx covers multiple columns. shiftSelectedByDelta
+      // returns false at the 1/4 boundary (group-solidarity clamp), at
+      // which point we stop advancing the anchor so the user can pull
+      // back immediately without having to "un-build" distance first.
+      const colW = m.colW;
+      const threshold = colW * 0.5;
+      const dx = x - dragMoveX0;
+      while (dx - dragMoveColDelta * colW > threshold) {
+        if (!shiftSelectedByDelta(+1)) break;
+        dragMoveColDelta++;
+        moved = true;
+        changed = true;
+        invalidateNoteOverlaps();
+      }
+      while (dx - dragMoveColDelta * colW < -threshold) {
+        if (!shiftSelectedByDelta(-1)) break;
+        dragMoveColDelta--;
+        moved = true;
+        changed = true;
+        invalidateNoteOverlaps();
+      }
+
+      if (changed) drawN();
       return;
     }
 
@@ -2032,6 +2105,20 @@ function drawS() {
         hx = p.x + pd; hw = p.w - pd * 2;
       }
       drawNoteHead(ctx, n.isWide, hx, y, hw, th, hc, 2);
+
+      // Phase 5: Line 1/4 invalid-overlap warning (red border + halo).
+      // Wide notes are channel 0 so ov.type === 'invalid' never fires for
+      // them — this only runs for normal notes on Line 1 or Line 4.
+      if (ov && ov.type === 'invalid') {
+        ctx.save();
+        ctx.strokeStyle = INVALID_COLOR;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = INVALID_COLOR;
+        ctx.shadowBlur = 8;
+        ctx.strokeRect(hx - 1, y - th / 2 - 1, hw + 2, th + 2);
+        ctx.strokeRect(hx - 1, y - th / 2 - 1, hw + 2, th + 2);
+        ctx.restore();
+      }
     }
   }
 

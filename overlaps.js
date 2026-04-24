@@ -19,7 +19,13 @@ import { defineCache, get, invalidate } from './cache.js';
 
 defineCache('noteOverlapMap', ['notes'], () => {
   const ovm = new Map();
-  for (const ch of OVERLAP_CHANNELS) {
+  // Phase 5: Extend loop to ALL 4 channels. Line 2/3 keep their existing
+  // merged/yellow/clipped/hidden treatment. Line 1/4 use the same overlap
+  // *detection* algorithm but emit {type: 'invalid'} for both notes, since
+  // those channels have only one physical key — two coincident notes cannot
+  // be played and the user must delete one.
+  for (const ch of [1, 2, 3, 4]) {
+    const isOverlapCapable = OVERLAP_CHANNELS.includes(ch);
     const cns = D.notes.filter(n => !n.isWide && n.channel === ch);
     if (cns.length < 2) continue;
     cns.sort((a, b) => a.startTick - b.startTick || (a.duration || 0) - (b.duration || 0));
@@ -38,6 +44,16 @@ defineCache('noteOverlapMap', ['notes'], () => {
         else if (a.duration > 0 && !b.duration) hit = (b.startTick >= a.startTick && b.startTick < aE);
         else hit = (a.startTick < bE && b.startTick < aE);
         if (!hit) continue;
+
+        // Line 1/4: physical-input conflict. Mark both as invalid and skip
+        // merged/yellow/clipped logic — invalid notes render plain-white
+        // with a red warning border, never yellow.
+        if (!isOverlapCapable) {
+          if (!ovm.has(a)) ovm.set(a, {type:'invalid'});
+          if (!ovm.has(b)) ovm.set(b, {type:'invalid'});
+          continue;
+        }
+
         const sameRange = (a.startTick === b.startTick && (a.duration || 0) === (b.duration || 0));
         if (sameRange) {
           if (!ovm.has(a)) ovm.set(a, {type:'merged'});
@@ -81,7 +97,9 @@ export function classifyNotesForZOrder(notes, ovm) {
   for (const n of notes) {
     if (n.isWide) { wide.push(n); continue; }
     const o = ovm.get(n);
-    if (!o || o.type === 'clipped') normW.push(n);
+    // Phase 5: 'invalid' notes render white-fill (like clipped) with a red
+    // warning border drawn on top by each canvas's head pass.
+    if (!o || o.type === 'clipped' || o.type === 'invalid') normW.push(n);
     else if (o.type === 'hidden') hidden.push(n);
     else normY.push(n); // merged | yellow
   }
