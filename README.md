@@ -1,180 +1,203 @@
-# Conflux Editor v21 — Phase 5
+# Conflux Editor v21 — Phase 3-5
 
-**노트 라인 이동 (drag-based) + 겹침 시각 피드백**
+**체인의 방향성 제거 — Blue/Red 모델**
 
-기존 y축 drag-move에 x축(라인) 이동을 확장. 동시에 Line 1/4의 잘못된 겹침을 빨간 테두리로 실시간 경고.
+Shape 체인의 시맨틱을 "left/right boundary"에서 "두 개의 독립된 색 곡선"으로 전환. 역전 개념이 사라져서 normalize 알고리즘 불필요.
 
-## 개요
+## 배경
 
-Notes 탭의 sel tool에서 이미 선택된 노트를 누르고 끌면:
-- **y축 (시간)**: 기존 그대로 매 frame tick 이동
-- **x축 (라인)**: column 너비의 50% 임계 초과 시 한 칸씩 step 이동 (히스테리시스)
+Phase 3-4 README에 이미 언급: *"LR 역전 상태(left > right, 계획서 §D3가 Phase 3-5에서 해결 예정)가 가능한 현 시점에서..."*
 
-두 축은 독립. 대각선 드래그로 시간과 라인 동시 이동 가능.
+기존에는 Left 체인과 Right 체인이 각각 "판의 왼쪽 boundary"와 "오른쪽 boundary"라는 **방향 의미**를 가졌음. 사용자가 편집 중 교차를 만들면 "역전"이라는 오류 상태가 됨.
 
-## §1. X축 드래그 — 히스테리시스
+하지만 실제 편집 워크플로우는 **교차를 적극 활용**함:
+> A는 Linear로 -4에서 4까지 움직이고, B는 A를 축으로 sine 곡선을 그리는 경우, A를 깔아놓고 B만 움직여서 내가 원하는 모양을 만드는 게 훨씬 편함. (사용자 Q3 답)
 
-**왜 단순 `round(dx/colW)`가 아닌가:**
-round 방식은 경계(0.5)에서 손가락이 떨리면 한 프레임에 한 칸씩 진동. 히스테리시스는 임계 넘을 때마다 기준점을 이동해서, 반대 방향으로 **다시 0.5*colW 더 움직여야** 역이동. 안정적.
+이 워크플로우를 지원하려면 역전을 "허용"하고 렌더링 시점에 교정해야 함. 그런데 여기서 **발상 전환**: 체인에 방향 의미가 없다면, 교차는 오류가 아니라 자연스러운 상태가 됨.
 
-**구현:**
+## 해결 — 발상 전환
+
+| | 기존 | Phase 3-5 |
+|---|---|---|
+| 체인 이름 | Left / Right | Blue / Red |
+| 의미 | 판의 왼/오 boundary | 단순 색 식별자 |
+| 교차 | "역전" = 오류 상태 | 정상, 의도된 편집 |
+| 데이터 필드 | `isRight: bool` | **동일 필드** (의미만 재해석) |
+| Normalize 알고리즘 | 필요 (이벤트 삽입, 수치 이분법) | **불필요** |
+| 렌더링 교정 | 복잡한 데이터 정리 | 매 tick min/max (1줄) |
+
+**데이터 구조와 필드명은 무변경** — schemaVersion bump 없음, 호환성 완벽. 오로지 *의미 재해석 + 렌더링 레이어 1줄 추가 + UI 레이블 변경*.
+
+## 동작 — 세 탭 정리
+
+### Shape 탭 (편집)
+
+- Blue 체인 (파란 선, `isRight=false`)과 Red 체인 (분홍 선, `isRight=true`)을 각각 raw 데이터 그대로 표시
+- 사용자는 두 곡선을 독립적으로 조작 — Blue로 축을 깔고 Red로 장식하는 등 자유롭게
+- 교차 시각적으로 보임 (편집 피드백)
+- Mirror 기능 그대로 작동 (중심축 기준 반대 체인 대칭 이벤트 생성)
+
+### Notes 탭
+
+- 영향 없음. Notes 탭은 애초에 Shape를 소비하지 않음 (4-column fixed grid)
+- 코드 변경 0줄
+
+### Preview / Play 탭 (drawGameFrame)
+
+- 매 tick에서 `actualLeft = min(blue.pos, red.pos)`, `actualRight = max(blue.pos, red.pos)`
+- 판 boundary가 자연스럽게 정렬된 상태로 렌더
+- 교차 구간에서 판이 "뒤집혀" 보이는 현상 해결
+- Blue/Red 식별은 gameplay에서 무의미 — 플레이어는 판의 위치만 본다
+
+## 구현
+
+### `drawGameFrame`의 `getTkInfo` 캐시에서 swap
+
 ```js
-const dx = x - dragMoveX0;  // drag 시작점으로부터의 x 변위
-while (dx - dragMoveColDelta * colW > threshold) {
-  shift(+1); dragMoveColDelta++;
-}
-while (dx - dragMoveColDelta * colW < -threshold) {
-  shift(-1); dragMoveColDelta--;
-}
-```
-`while`을 쓰는 이유는 빠른 플릭에서 한 프레임에 여러 column을 넘을 수 있기 때문. 한 번에 1칸씩만 이동하면 드래그가 손가락보다 느리게 따라감.
+// 기존
+info = {sh: getShape(tk), lines: getLines(tk)};
 
-**그룹 연대 clamp:**
-선택 중 가장 오른쪽 노트가 Line 4면 `shift(+1)`은 전체 거부. 한 명만 막혀도 아무도 안 움직임. 반대 방향은 대칭. Wide 노트는 channel 고정(0)이라 계산에서 제외(선택에는 남음).
-
-Clamp 거부 시 `dragMoveColDelta`도 그대로 유지 → 사용자가 반대 방향으로 임계만 넘으면 즉시 반응. "막힌 방향으로 쌓아둔 거리"를 되돌릴 필요 없음.
-
-## §2. 겹침 시각 피드백
-
-### 노란색 (기존) — Line 2/3
-`OVERLAP_CHANNELS`에서 같은 tick 범위가 겹치면 merged/yellow. 드래그든 수동 배치든 구분 없음. 기존 `noteOverlapMap` 로직 그대로.
-
-### 빨간 테두리 + halo (신규) — Line 1/4
-물리 키 1개인 라인에서 겹침 = 입력 불가능한 상태. `overlaps.js`의 loop를 모든 채널로 확장하되, Line 1/4에서 감지된 겹침은 `{type: 'invalid'}`로 표시. 양쪽 노트 모두에 표시 (어느 쪽을 지울지는 사용자가 결정).
-
-```js
-// overlaps.js
-for (const ch of [1, 2, 3, 4]) {
-  const isOverlapCapable = OVERLAP_CHANNELS.includes(ch);
-  // ...겹침 감지 (기존과 동일 알고리즘)
-  if (!isOverlapCapable) {
-    ovm.set(a, {type:'invalid'});
-    ovm.set(b, {type:'invalid'});
-    continue;
-  }
-  // ...기존 merged/yellow/clipped 로직
-}
+// Phase 3-5
+const raw = getShape(tk);
+const sh = raw.left <= raw.right ? raw : { left: raw.right, right: raw.left };
+info = { sh, lines: getLines(tk) };
 ```
 
-### 렌더링
-`drawN` (Notes 탭), `drawS` (Shape 탭) 두 곳에서 head 패스에 빨간 테두리 + halo:
-```js
-if (ov && ov.type === 'invalid') {
-  ctx.strokeStyle = INVALID_COLOR;  // '#ff3040'
-  ctx.lineWidth = 2;
-  ctx.shadowColor = INVALID_COLOR;
-  ctx.shadowBlur = 8;
-  ctx.strokeRect(...);
-  ctx.strokeRect(...);  // halo 강조 위해 두 번
-}
+`getTkInfo(tk).sh`를 소비하는 drawGameFrame 내부 15+ 곳이 **자동으로 정리된 값을 받음**. 단일 수정점으로 전체 전파.
+
+### 직접 `getShape` 호출 2곳 — Step connector, Wide head step rendering
+
+`getTkInfo`를 거치지 않는 `getShape(stk - 0.0001)` / `getShape(stk + 0.0001)` 패턴이 drawGameFrame 내 2곳 있음:
+- Step horizontal connector 그리기
+- Wide head의 step 겹침 렌더링 (Phase 3-4)
+
+양쪽 모두 동일 min/max swap 적용.
+
+### UI 리라벨
+
+```html
+<!-- 기존 -->
+<button title="Left boundary [Q]">Left</button>
+<button title="Right boundary [W]">Right</button>
+
+<!-- Phase 3-5 -->
+<button title="Blue chain [Q]" style="color:#6bb5ff;border-color:#6bb5ff">Blue</button>
+<button title="Red chain [W]" style="color:#ff6b8a;border-color:#ff6b8a">Red</button>
 ```
-`classifyNotesForZOrder`에서 `'invalid'` → `normW` 버킷으로 라우팅 (흰색 채움 유지). 빨간 테두리만 덮어씌움.
 
-**drawGameFrame은 이번 phase 범위 밖** (계획서 §2.6). Play 중 판정 혼란 방지. Phase 6에서 게임 상태와 함께 재검토.
+버튼 색상을 해당 체인 색으로 바꿔 단어 이름과 시각적으로 일치. 단축키 Q/W 유지.
 
-### 실시간 반응
-매 드래그 step마다 `invalidateNoteOverlaps()` 호출. 다음 frame에 색상 즉시 반영.
+Pinch 툴팁도 `L&R` → `Blue&Red`로 업데이트.
 
-## §3. 히스토리
+### 시맨틱 주석 — `shape.js`
 
-기존 y축 drag-move와 동일: `pointerup` 시점에 `moved === true`면 `saveHist('n')`. x축/y축 모두 같은 `moved` 플래그로 판정. 드래그 한 번 = 히스토리 1 엔트리. 뗐다 잡으면 별개 엔트리.
+`isRight` 필드의 의미 재해석을 파일 상단 주석에 명시. 미래의 본인(또는 다른 개발자)이 코드를 읽을 때 "왜 isRight인데 right 의미가 없지?" 혼동 방지.
 
-Phase 4와 일관된 snapshot 방식 — Command 이관은 Phase 7에서.
-
-## §4. 파일 변경
+## 변경 요약
 
 | 파일 | 변경 | 줄 변화 |
 |---|---|---|
-| `constants.js` | `INVALID_COLOR = '#ff3040'` 추가 | 51 → 52 (+1) |
-| `overlaps.js` | loop를 모든 채널로 확장, `'invalid'` 타입 생성, classifyNotesForZOrder 라우팅 | 103 → 107 (+4) |
-| `main.js` | INVALID_COLOR import, dragMoveX0/dragMoveColDelta 상태, shiftSelectedByDelta 헬퍼, x축 hysteresis, drawN/drawS 빨간 테두리 | 4366 → 4452 (+86) |
+| `main.js` | drawGameFrame `getTkInfo` swap, Step connector swap, Wide head step swap | 4452 → 4474 (+22) |
+| `index.html` | Shape 툴바 Left/Right → Blue/Red + 색상, Pinch 툴팁 | 388 → 388 (0; in-place 변경) |
+| `shape.js` | 상단 주석에 시맨틱 재해석 명시 | 238 → 253 (+15) |
 
-기타 파일 (index.html, cache.js, commands.js, renderer.js, scheduler.js, shape.js, state.js, timing.js) 무변경.
+기타 8개 파일 무변경.
 
-## §5. 회귀 검증 체크리스트
+## 설계 결정 기록
 
-**드래그 기본 동작:**
-- [ ] Line 2 노트 선택 → 오른쪽으로 `colW*0.5` 이상 드래그 → Line 3으로 이동
-- [ ] 계속 오른쪽 → Line 4로 이동
-- [ ] Line 4 도달 후 더 오른쪽 → 정지 유지
-- [ ] 정지 상태에서 왼쪽 드래그 → 즉시 Line 3으로 복귀 (히스테리시스 재시작)
-- [ ] 대각선 드래그 → y와 x 동시 이동
+### §a. 왜 필드명을 바꾸지 않았나 (isRight 유지)
 
-**그룹 연대 clamp:**
-- [ ] Line 2·3·4 섞인 선택 → 오른쪽 드래그 → 전체 정지 (Line 4가 경계)
-- [ ] Line 1·2·3 섞인 선택 → 왼쪽 드래그 → 전체 정지 (Line 1이 경계)
-- [ ] 정지된 상태에서 반대 방향 드래그 → 다른 노트도 같이 이동
+- `isRight`가 코드 전반 (shape.js의 `isStepTick`, `normalizeShapeChain`, `resolveArcEasing`, `buildShapePointArrays`, drawS의 수많은 분기, main.js의 Shape 툴 로직) 깊이 박혀 있음
+- 필드명 변경 시 migration 로직 + schemaVersion bump + 모든 호출처 동기 변경
+- **의미론적 재해석으로 충분** — 데이터가 무엇인지는 코드가 결정하지 이름이 결정하지 않음
+- 기존 JSON 저장 파일 완벽 호환
+- 단점: 미래 개발자가 `isRight`를 보고 "오른쪽 체인"으로 오해할 여지 — 주석으로 방어
 
-**Wide 노트:**
-- [ ] Line 2 + Wide 섞인 선택 → 드래그 → 일반 노트만 이동, Wide 고정
-- [ ] Wide만 선택 → 드래그 → 아무 동작 없음
+### §b. 왜 Shape 탭은 raw 유지인가
 
-**겹침 피드백:**
-- [ ] Line 3에 있는 노트 선택 → Line 2로 드래그 → Line 2 기존 노트와 만남 → **노란색** 실시간
-- [ ] 더 드래그해서 벗어남 → 흰색 복귀
-- [ ] Line 2 노트 선택 → Line 1로 드래그 → Line 1 기존 노트와 만남 → **빨간 테두리 + halo** 실시간
-- [ ] Line 4도 동일
-- [ ] 빨간 상태로 손 뗌 → 저장됨 (취소 아님), Ctrl+Z로 복원 가능 (Q3-d 옵션 3)
+- 편집자는 **체인 단위**로 사고: "Blue 곡선을 여기까지 밀자", "Red 곡선에 sine 더하자"
+- 이 편집 모델은 "두 독립 곡선"이지 "boundary pair"가 아님
+- Shape 탭에서도 min/max로 그리면 편집자가 Blue를 끌었는데 화면에서 Red처럼 보일 수 있음 → WYSIWYG 깨짐
+- 교차 시각화는 편집 피드백의 일부 — 사용자가 의도한 모양 그대로 보여주는 게 맞음
 
-**히스토리:**
-- [ ] 드래그(x+y 모두 움직임) → 떼기 → Ctrl+Z → 원위치
-- [ ] 드래그 중 일시 정지 후 손 뗌 → 다시 잡고 이어 드래그 → Ctrl+Z → 두 번째만 복원
+### §c. 왜 drawGameFrame은 min/max인가
 
-**렌더링 일관성:**
-- [ ] Notes 탭에서 invalid 빨간 테두리 표시
-- [ ] Shape 탭에서도 같은 노트의 invalid 표시
-- [ ] Preview/Play 탭(drawGameFrame)에서는 빨간 테두리 없음 (의도)
+- 플레이어는 "체인 identity"를 인식할 이유 없음 — 판의 boundary만 있으면 됨
+- 데이터의 교차는 플레이어에게 의미 전달 불가
+- Preview는 "게임 중 어떻게 보일지" 미리 확인하는 용도 — Play와 동일 동작이 맞음
 
-**Phase 4 회귀:**
-- [ ] Flip 버튼 / Paste long-press 정상
-- [ ] Ctrl+F / Ctrl+V 정상
+### §d. Normalize 알고리즘을 왜 안 썼나
 
-**Phase 3-1 / 3-4 / 1 회귀:**
+이전 턴의 X2 계획에서는 JSON export 시 `normalizeLRInversions(data)` 함수로 역전 구간을 이벤트 삽입으로 "평탄화"하는 알고리즘이 필요했음. 구체적으로:
+- 체인 교차점 수치 이분법 (모든 easing 종류 지원)
+- 역전 구간 경계에 새 이벤트 삽입
+- 이벤트 수 증가 감수
+
+Blue/Red 모델에서 **이 전체가 불필요**. 이유는 간단: "역전"이라는 개념 자체가 없음. 교차는 정상 상태이므로 정리할 것이 없음.
+
+이것이 이 phase의 가장 큰 수익 — **복잡한 알고리즘 구현 회피**.
+
+### §e. Mirror 기능의 새 해석
+
+기존: "Left 이벤트를 만들면 Right에도 중심축 대칭으로"
+
+새: "Blue 이벤트를 만들면 Red에도 중심축 대칭으로"
+
+**동작 완전 동일**. 코드 무변경. 다만 개념적으로:
+- 기존: "대칭 boundary 생성 (쌍으로 움직이는 판)"
+- 새: "대칭 곡선 생성 (Blue-Red 쌍이 거울상)"
+
+후자가 더 자연스러운 설명. 예를 들어 "X자로 교차하는 대칭 모양"은 기존 의미로는 성립 안 하지만 (양쪽 boundary가 교차하면 판이 이상함), 새 의미로는 정상 (두 곡선이 대칭으로 교차).
+
+## 회귀 검증 체크리스트
+
+**기본 동작:**
+- [ ] Shape 탭에서 Blue 버튼 선택 → 이벤트 생성 → 파란 선에 점 찍힘
+- [ ] Red 버튼 선택 → 이벤트 생성 → 분홍 선에 점 찍힘
+- [ ] 버튼 색상이 각 체인 색과 일치
+- [ ] 단축키 Q (Blue), W (Red) 작동
+- [ ] Mirror 기능: Mirror ON + Blue 이벤트 생성 → Red에도 중심축 대칭 이벤트 생성
+
+**교차 처리:**
+- [ ] Blue를 Linear로 -4 → +4 배치 (전체 영역 훑는 축)
+- [ ] Red에 sine으로 Blue 주변 진동하게 배치 (중간중간 Blue를 가로지름)
+- [ ] Shape 탭: 두 선이 교차되어 보임 (정상 — 편집 피드백)
+- [ ] Preview 탭: 판 boundary가 자연스럽게 min/max로 정렬, 교차 없음
+- [ ] Play 탭: Preview와 동일 시각화
+
+**Phase 3-4 회귀:**
+- [ ] Wide head step 겹침이 Preview/Play에서 정상 (교차 없는 shape에서 기존과 동일)
+- [ ] 교차 있는 shape에서도 Wide head가 정상 범위로 그려짐 (rx0/rw가 정리된 boundary 기준)
+
+**Phase 3-1/4/5 회귀:**
 - [ ] Shape Sel+Del 다중 삭제
-- [ ] Wide head step 렌더링
-- [ ] Play 탭 Autoplay / 전체화면 / 처음부터 시작
-- [ ] Line 2·3 기존 노란색 overlap (merged/yellow/hidden/clipped) 정상
-- [ ] 기존 y축 단독 drag-move (x 임계 이하 움직임)
+- [ ] Notes 탭 Copy/Paste/Flip, Paste long-press
+- [ ] Notes 탭 drag x축 라인 이동, Line 1/4 invalid 빨간 테두리
 
-## §6. 설계 결정 기록
+**호환성:**
+- [ ] 기존 저장된 JSON 파일 로드 → 정상 작동
+- [ ] 새로 저장 후 다시 로드 → 동일 동작
+- [ ] Import 후 export → 데이터 동일 (normalize 없음)
 
-### §6-a. 히스테리시스 vs round
-round는 경계 진동. 히스테리시스는 임계 통과 시 기준점 이동 → 반대 방향으로 다시 임계 통과해야 역이동. 리듬게임 편집의 빠른 플릭 처리에 필수.
+**기존 교차 채보:**
+- [ ] 역전이 있던 기존 채보 → Preview/Play에서 판이 정리되어 보임 (사용자 말: "고쳐지는 게 맞음")
 
-### §6-b. 그룹 연대 clamp (Q2-C)
-Line 2·3·4 섞인 선택 중 Line 4가 막혀도 다른 노트는 진행하면, Line 4 노트 2개가 겹쳐서 의도치 않은 invalid 상태 발생. 전체 정지가 깔끔 + 덜 놀람.
+## 사용자 멘탈 모델 전환
 
-### §6-c. invalid 감지를 overlaps.js 안에 통합
-세 canvas(drawN/drawS/drawGameFrame)가 같은 `noteOverlapMap`을 읽음. 감지 로직을 한 곳에 두면 자동 일관성. 분산 시 동기화 버그 위험.
+이전:
+> "Left는 왼쪽 boundary, Right는 오른쪽. 둘이 교차하면 안 됨 (역전)."
 
-### §6-d. drawGameFrame 제외 (§2.6)
-Play 중 빨간 테두리는 판정 혼란. Phase 6 판정 개선에서 게임 상태와 함께 재검토 예정. Preview 모드만 적용할지도 그때 결정.
+이후:
+> "Blue와 Red는 독립된 두 곡선. 어느 쪽이 왼쪽에 올지는 매 순간 달라질 수 있음. 게임은 알아서 min/max로 판을 그린다."
 
-### §6-e. snapshot 유지 (Command 미사용)
-Phase 4와 동일 근거. 기존 y축 drag-move가 snapshot이라 x축만 Command로 가면 undo 순서 꼬임. 같은 드래그의 두 축은 같은 메커니즘이 맞음. Phase 7에서 Notes 탭 전체 Command 이관할 때 같이.
+후자의 모델이:
+- 편집 자유도 ↑
+- 설명 난이도 ↓ ("그냥 두 색 곡선")
+- 버그 가능성 ↓ ("역전" 상태 자체가 존재 안 함)
 
-### §6-f. invalid 노트를 normW로 라우팅
-흰색 채움 유지(`classifyNotesForZOrder` → normW 버킷). 그 위에 빨간 테두리를 head-pass에서 덮어씀. 기존 clipped와 동일한 z-order 처리 — 검증된 패턴.
-
-### §6-g. 빨간 테두리 두 번 stroke
-기존 선택 테두리(초록 #4aff8a)와 동일 패턴. shadowBlur로 halo 효과 강조.
-
-## §7. 추가 노트
-
-**INVALID_COLOR 재사용 가능성:**
-다른 위치에서도 "이건 안 되는 상태" 경고가 필요할 때 `constants.js`의 `INVALID_COLOR`를 재사용. 예: 향후 Step 이벤트의 LR 역전 감지(Phase 3-5)에서 같은 빨간색으로 경고.
-
-**Line 1/4 판정 로직:**
-현재 Play 모드는 채널당 1개 입력 가정. Line 1/4에서 invalid가 있으면 Play 판정도 오동작 가능. Phase 6에서 "같은 채널 같은 tick에 노트가 2개 이상이면 하나만 판정" 같은 방어 로직이 필요할 수 있음.
-
-**Shape 탭에서 노트 선택/드래그 불가:**
-Shape 탭은 노트를 표시만 하고 편집은 Notes 탭에서만 가능. Phase 5는 Notes 탭 전용 기능이고 Shape 탭은 "겹침 상태 확인용 디스플레이"로만 업데이트됨.
-
-## §8. 다음 Phase
+## 다음 Phase
 
 계획서 §작업 순서:
-- Phase 3-2/3-3 — Step/Linear 통합 + schemaVersion 2
-- Phase 2 — Measure numbering
-- Phase 3-5 — LR 역전 실시간 swap (INVALID_COLOR 재사용 기회)
-- Phase 6 — Play 판정 개선 (LN tail 콤보 + drawGameFrame invalid 표시 검토)
-- Phase 7 — Notes 탭 Command 이관 (drag-move/flip/paste snapshot → Command)
+- **Phase 6** — Play 판정 개선 (LN tail 콤보, drawGameFrame invalid 표시 검토)
+- Phase 3-2/3-3 + Phase 2 — Step/Linear 통합 + Measure numbering (schemaVersion 2 bump, 묶음 처리)
+- Phase 7 — Notes 탭 Command 이관

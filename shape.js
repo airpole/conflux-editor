@@ -5,6 +5,17 @@
 // External mutators call invalidate(['shapeEvents'|'lineEvents']) — or the
 // legacy compat wrappers invalidateShapeCache/invalidateLinesCache, which
 // forward to the same mechanism.
+//
+// Phase 3-5 semantic note:
+//   `isRight` is a *chain identifier*, not a direction. The two chains are
+//   labeled "Blue" (isRight=false) and "Red" (isRight=true) in the UI. Either
+//   chain may be visually left or right of the other at any given tick — the
+//   rendering layer (drawGameFrame) picks min/max per tick to produce the
+//   actual gameplay boundaries. Shape tab (drawS) shows the raw chains so
+//   the editor can manipulate each curve independently; crossings are a
+//   legitimate editing workflow, not an error state.
+//   The field name `isRight` is retained to avoid a schema bump — only its
+//   interpretation changed, not the data layout.
 
 import { D } from './state.js';
 import { defineCache, get, invalidate } from './cache.js';

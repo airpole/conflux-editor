@@ -2717,10 +2717,22 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   // 4.9: frame-scoped {sh, lines} cache — same tk gets hit across body/head passes
   // and forward/reverse polygon loops. getShape/getLines are already cached globally,
   // but a frame-local Map avoids repeated cache lookups and object destructuring.
+  //
+  // Phase 3-5: blue/red chains have no direction semantics in the data — what
+  // matters for gameplay is which side is left/right *at this tick*. Normalize
+  // to min/max here so the rest of drawGameFrame can use sh.left / sh.right
+  // as the actual visual boundaries without caring about chain identity.
+  // Shape tab (drawS) intentionally does NOT do this — editors see the raw
+  // chains so they can control each curve independently.
   const _tkInfo = new Map();
   const getTkInfo = (tk) => {
     let info = _tkInfo.get(tk);
-    if (!info) { info = {sh: getShape(tk), lines: getLines(tk)}; _tkInfo.set(tk, info); }
+    if (!info) {
+      const raw = getShape(tk);
+      const sh = raw.left <= raw.right ? raw : { left: raw.right, right: raw.left };
+      info = { sh, lines: getLines(tk) };
+      _tkInfo.set(tk, info);
+    }
     return info;
   };
 
@@ -2751,11 +2763,17 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   ctx.stroke();
 
   // --- Draw Step horizontal connector lines at each Step tick ---
+  // Phase 3-5: direct getShape calls here need the same min/max normalization
+  // as getTkInfo. Step connectors now visualize how the *rendered* boundaries
+  // jump, not the raw chain values — stays consistent with the rest of this
+  // canvas.
   for (const stk of stepTicks) {
     const y = tk2y(stk);
     if (y < gy - 2 || y > gy + gh + 2) continue;
-    const shBefore = getShape(stk - 0.0001);
-    const shAfter  = getShape(stk + 0.0001);
+    const rawB = getShape(stk - 0.0001);
+    const rawA = getShape(stk + 0.0001);
+    const shBefore = rawB.left <= rawB.right ? rawB : { left: rawB.right, right: rawB.left };
+    const shAfter  = rawA.left <= rawA.right ? rawA : { left: rawA.right, right: rawA.left };
     const pls = shBefore.left, prs = shBefore.right;
     const cls = shAfter.left,  crs = shAfter.right;
     if (Math.abs(pls - cls) > 0.01) {
@@ -2984,7 +3002,11 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
       let rx0, rw;
       if (n.isWide && isStepTick(n.startTick)) {
         const stk = n.startTick;
-        const shB = getShape(stk - 0.0001), shA = getShape(stk + 0.0001);
+        // Phase 3-5: normalize for rendering — same rationale as the step
+        // connector block above and the getTkInfo cache.
+        const rawB = getShape(stk - 0.0001), rawA = getShape(stk + 0.0001);
+        const shB = rawB.left <= rawB.right ? rawB : { left: rawB.right, right: rawB.left };
+        const shA = rawA.left <= rawA.right ? rawA : { left: rawA.right, right: rawA.left };
         const lo = Math.min(shB.left,  shA.left);
         const hi = Math.max(shB.right, shA.right);
         rx0 = p2x(lo); rw = p2x(hi) - rx0;
