@@ -182,8 +182,15 @@ let playActive = false, playFullscreen = false;
 let playAutoplay = false;      // v21: autoplay toggle (auto-SYNC instead of key input)
 let playT0 = 0, playOffMs = 0;
 let playAudioStarted = false;  // Lead-in: has audio started yet?
-let playHitMap = new Map();   // note → {diff, type, hitMs}
-let playMissSet = new Set();
+// Phase 6 (D2): playHitMap entries now track head + tail separately.
+//   Non-LN: {headHit:true, headDiff, headType, headMs, isLN:false, tailDone:true}
+//   LN:     {headHit:true, headDiff, headType, headMs, isLN:true,
+//            tailDone:bool, tailFailed:bool, tailMs?}
+//   tailDone=true && tailFailed=false → LN completed successfully
+//   tailDone=true && tailFailed=true  → mid-release (head success but tail miss)
+//   tailDone=false                    → still holding (LN in progress)
+let playHitMap = new Map();
+let playMissSet = new Set();   // head misses only (D2 policy: head miss → 2 miss)
 let playEffects = [];         // active hit effect animations (play mode)
 let playCombo = 0, playMaxCombo = 0;
 let playJudgQueue = [];       // [{type, diff, t}] for on-screen display
@@ -2829,16 +2836,21 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     const wst = wn.startTick, wet = wst + wn.duration;
     const wnMs = t2ms(wst), wneMs = t2ms(wet);
     if (wnMs > topMs + 300 || wneMs < botMs - 300) continue;
-    // If hit, only draw the unconsumed portion (above judgment line)
+    // If hit (not miss/mid-release), only draw the unconsumed portion (above judgment line)
     let drawSt = wst;
     const wIsHit = opts.hitMap.has(wn);
     const wIsMiss = opts.missSet && opts.missSet.has(wn);
-    if (wIsHit && !wIsMiss) {
+    const wHitRec = wIsHit ? opts.hitMap.get(wn) : null;
+    const wIsMidRelease = !!(wHitRec && wHitRec.isLN && wHitRec.tailFailed);
+    if (wIsHit && !wIsMiss && !wIsMidRelease) {
       drawSt = Math.max(wst, curTk);
       if (drawSt >= wet) continue; // fully consumed
     }
     const wdd = buildGFTicks(drawSt, wet);
     if (wdd.length < 2) continue;
+    // Phase 6 D2: dim wide LN body when missed or mid-released.
+    const wAlpha = (wIsMiss || wIsMidRelease) ? 0.3 : 1;
+    if (wAlpha !== 1) ctx.globalAlpha = wAlpha;
     ctx.fillStyle = WIDE_BODY; ctx.beginPath();
     for (let s = 0; s < wdd.length; s++) {
       const tk = wdd[s], y = tk2y(tk);
@@ -2851,6 +2863,7 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
       ctx.lineTo(rx, y);
     }
     ctx.closePath(); ctx.fill();
+    if (wAlpha !== 1) ctx.globalAlpha = 1;
   }
 
   // --- Draw inner line dividers (step-aware) ---
@@ -2966,10 +2979,17 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     let isHit, isMissed;
     isHit = opts.hitMap.has(n);
     isMissed = opts.missSet && opts.missSet.has(n);
+    // Phase 6 D2: a mid-release LN (head hit, tail failed) is also "missed"
+    // for visual purposes — it should dim the same way a head-miss dims.
+    // The hitMap entry has tailFailed=true after handlePlayKeyUp/applyMidRelease.
+    const hitRec = isHit ? opts.hitMap.get(n) : null;
+    const isMidRelease = !!(hitRec && hitRec.isLN && hitRec.tailFailed);
     let alpha = 1;
     if (isHit && !n.duration) { alpha = Math.max(0, 1 - (curMs - nMs) / 100); } // Hit tap notes fade over 100ms
     if (isMissed && !n.duration) { alpha = 1; } // Miss tap notes keep scrolling (visible)
-    _gfState.set(n, { ov, li, headCol, bodyCol, isHit, isMissed, alpha, nMs, neMs });
+    // Phase 6 D2: missed or mid-released LN → dim to 0.3 (head + body + tail).
+    if ((isMissed || isMidRelease) && n.duration > 0) { alpha = Math.min(alpha, 0.3); }
+    _gfState.set(n, { ov, li, headCol, bodyCol, isHit, isMissed, isMidRelease, alpha, nMs, neMs });
   }
 
   // Pass 1 — Bodies: normal white/clipped → normal yellow/merged (wide hold bodies already drawn above)
@@ -2979,13 +2999,14 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     ctx.globalAlpha = s.alpha;
     if (n.duration > 0 && !n.isWide) {
       let st = n.startTick, et = st + n.duration;
-      // If hit (not miss), consume body from judgment line
-      if (s.isHit && !s.isMissed) {
+      // If hit (not miss/mid-release), consume body from judgment line
+      if (s.isHit && !s.isMissed && !s.isMidRelease) {
         st = Math.max(st, curTk);
         if (st >= et) { ctx.globalAlpha = 1; continue; } // fully consumed
       }
-      // When Missed, render the full body in its default body color, ignoring overlap.
-      const effectiveOv = s.isMissed ? null : s.ov;
+      // When Missed or mid-released, render the full body in its default
+      // body color, ignoring overlap (consistent with miss-color visual rule).
+      const effectiveOv = (s.isMissed || s.isMidRelease) ? null : s.ov;
       for (const seg of splitBodyByOverlap(n, effectiveOv, st, et, s.bodyCol)) {
         // Clamp segment to consumption-trimmed [st, et]
         const from = Math.max(seg.tkFrom, st);
@@ -3015,6 +3036,17 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
         const rx0 = n.isWide ? Math.min(hp.x, hp.x + hp.w) : hp.x + hp.w * .05;
         const rw  = n.isWide ? Math.abs(hp.w)              : hp.w - hp.w * .05 * 2;
         drawNoteHead(ctx, n.isWide, rx0, hy, rw, th, hc, 4);
+        // Phase 6 Q4: Preview shows Line 1/4 invalid warnings, Play hides them.
+        // opts.showInvalid is set by the caller (true for static preview, false
+        // for active play sessions where the red border would be visual noise).
+        if (opts.showInvalid && s.ov && s.ov.type === 'invalid') {
+          ctx.save();
+          ctx.strokeStyle = INVALID_COLOR; ctx.lineWidth = 2;
+          ctx.shadowColor = INVALID_COLOR; ctx.shadowBlur = 8;
+          ctx.strokeRect(rx0 - 1, hy - th / 2 - 1, rw + 2, th + 2);
+          ctx.strokeRect(rx0 - 1, hy - th / 2 - 1, rw + 2, th + 2);
+          ctx.restore();
+        }
       }
     } else {
       const y = tk2y(n.startTick); if (y < gy - 20 || y > gy + gh + 20) { ctx.globalAlpha = 1; continue; }
@@ -3042,6 +3074,15 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
         rw  = n.isWide ? Math.abs(p.w)            : p.w - p.w * .05 * 2;
       }
       drawNoteHead(ctx, n.isWide, rx0, y, rw, th, drawHead, 4);
+      // Phase 6 Q4: same as above — invalid warning for Tap heads in Preview.
+      if (opts.showInvalid && s.ov && s.ov.type === 'invalid') {
+        ctx.save();
+        ctx.strokeStyle = INVALID_COLOR; ctx.lineWidth = 2;
+        ctx.shadowColor = INVALID_COLOR; ctx.shadowBlur = 8;
+        ctx.strokeRect(rx0 - 1, y - th / 2 - 1, rw + 2, th + 2);
+        ctx.strokeRect(rx0 - 1, y - th / 2 - 1, rw + 2, th + 2);
+        ctx.restore();
+      }
     }
     ctx.globalAlpha = 1;
   }
@@ -3746,7 +3787,8 @@ function drawPlayScreen(cv, curMs) {
   ctx.fillStyle = '#050508'; ctx.fillRect(gx, gy, gw, gh);
   ctx.save(); ctx.beginPath(); ctx.rect(gx, gy, gw, gh); ctx.clip();
   drawGameFrame(ctx, gx, gy, gw, gh, curMs, {
-    hitEffects: playEffects, hitMap: playHitMap, missSet: playMissSet, showMissColor: true
+    hitEffects: playEffects, hitMap: playHitMap, missSet: playMissSet, showMissColor: true,
+    showInvalid: false   // Phase 6 Q4: hide Line 1/4 warnings during live Play
   });
   drawPlayHUD(ctx, gx, gy, gw, gh, curMs);
   ctx.restore();
@@ -3761,18 +3803,40 @@ function drawPlayScreen(cv, curMs) {
  * differs between idle (inline) and session (fullscreen).
  */
 function drawPlayHUD(ctx, gx, gy, gw, gh, curMs) {
-  const sCount = [...playHitMap.values()].filter(v => v.type === 'SYNC').length;
-  const pCount = [...playHitMap.values()].filter(v => v.type === 'PERFECT').length;
-  const gCount = [...playHitMap.values()].filter(v => v.type === 'GOOD').length;
-  const mCount = playMissSet.size;
+  // Phase 6 D2: counts now reflect head + tail breakdown.
+  //   Head success contributes one entry of headType (SYNC/PERFECT/GOOD).
+  //   Tail success (LN completed) contributes one SYNC.
+  //   Head miss on an LN contributes 2 to the miss count (head + tail both fail).
+  //   Mid-release contributes 1 to miss (the tailFailed flag).
+  //   Total denominator: non-LN = 1, LN = 2 (already in place).
+  let sCount = 0, pCount = 0, gCount = 0;
+  let tailHits = 0;       // LN tail successes (always count as SYNC)
+  let midReleases = 0;    // tail-only failures (LN with headHit but tailFailed)
+  for (const rec of playHitMap.values()) {
+    if (rec.headType === 'SYNC') sCount++;
+    else if (rec.headType === 'PERFECT') pCount++;
+    else if (rec.headType === 'GOOD') gCount++;
+    if (rec.isLN && rec.tailDone) {
+      if (rec.tailFailed) midReleases++;
+      else tailHits++;
+    }
+  }
+  // Head misses: each LN head-miss counts as 2, each non-LN head-miss as 1.
+  let headMissPoints = 0;
+  for (const n of playMissSet) {
+    headMissPoints += (n.duration > 0 ? 2 : 1);
+  }
+  const mCount = headMissPoints + midReleases;
+  // Successful tails contribute SYNC weight (1.0) to score & accuracy.
   const total = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0);
-  const score = total > 0 ? Math.round(((sCount + pCount * 0.9 + gCount * 0.5) / total) * 1000000) : 0;
-  const acc = total > 0 ? ((sCount + pCount * 0.9 + gCount * 0.5) / total * 100) : 0;
+  const numerator = sCount + tailHits + pCount * 0.9 + gCount * 0.5;
+  const score = total > 0 ? Math.round((numerator / total) * 1000000) : 0;
+  const acc = total > 0 ? (numerator / total * 100) : 0;
   const lastJ = playJudgQueue.length > 0 ? playJudgQueue[playJudgQueue.length - 1] : null;
   drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, {
     combo: playCombo, totalNotes: total, score,
     lastJudg: lastJ,
-    counts: {sync: sCount, perfect: pCount, good: gCount, miss: mCount},
+    counts: {sync: sCount + tailHits, perfect: pCount, good: gCount, miss: mCount},
     accuracy: acc,
     mode: 'play'
   });
@@ -3798,7 +3862,8 @@ function drawPlayIdle() {
   // Show static frame at current shared position — no live hits/misses driven from this draw,
   // but still show HUD so the user sees title/difficulty/score-so-far at all times on Play.
   drawGameFrame(ctx, gx, gy, gw, gh, sharedMs, {
-    hitEffects: [], hitMap: _EMPTY_HITMAP, missSet: _EMPTY_MISSSET, showMissColor: false
+    hitEffects: [], hitMap: _EMPTY_HITMAP, missSet: _EMPTY_MISSSET, showMissColor: false,
+    showInvalid: true    // Phase 6 Q4: idle/static preview shows Line 1/4 warnings
   });
   drawPlayHUD(ctx, gx, gy, gw, gh, sharedMs);
   ctx.restore();
@@ -3958,7 +4023,20 @@ function applyJudgment(note, diff, curMs, silent) {
   const abs = Math.abs(diff);
   // Wide notes: SYNC only (within ±100ms), no PERFECT/GOOD
   const type = note.isWide ? 'SYNC' : (abs <= JUDGE_SYNC ? 'SYNC' : abs <= JUDGE_PERFECT ? 'PERFECT' : 'GOOD');
-  playHitMap.set(note, {diff, type, hitMs: curMs});
+  const isLN = note.duration > 0;
+  // Phase 6 D2: head success. For non-LN, the note resolves immediately
+  // (tailDone=true). For LN, we record headHit and wait for handlePlayKeyUp
+  // (or autoTailSweep in autoplay) to decide tail outcome.
+  playHitMap.set(note, {
+    headHit: true,
+    headDiff: diff,
+    headType: type,
+    headMs: curMs,
+    isLN,
+    tailDone: !isLN,
+    tailFailed: false,
+    tailMs: isLN ? t2ms(note.startTick + note.duration) : undefined,
+  });
   playCombo++;
   if (playCombo > playMaxCombo) playMaxCombo = playCombo;
   playJudgQueue.push({type, diff, t: curMs});
@@ -3975,6 +4053,37 @@ function applyJudgment(note, diff, curMs, silent) {
   // In autoplay mode, hitsounds are pre-scheduled by scheduleHitsounds —
   // playHit() here would double-play (or play too late due to buffer latency).
   if (!silent) playHit();
+}
+
+/**
+ * Phase 6 D2: LN tail success — bumps combo and records tailDone.
+ * Called from handlePlayKeyUp (manual play) and autoTailSweep (autoplay).
+ * Tail successes always count as SYNC for score purposes (no PERFECT/GOOD
+ * distinction since there's no per-tail timing window — release just has
+ * to be near the tail tick).
+ */
+function applyTailSuccess(note, curMs) {
+  const rec = playHitMap.get(note);
+  if (!rec || !rec.isLN || rec.tailDone) return;
+  rec.tailDone = true;
+  rec.tailFailed = false;
+  playCombo++;
+  if (playCombo > playMaxCombo) playMaxCombo = playCombo;
+}
+
+/**
+ * Phase 6 D2: LN mid-release — head was hit but key released before tail.
+ * Adds 1 miss, breaks combo (only if combo wasn't already broken by a
+ * head-miss this sequence — handled by setting playCombo=0 unconditionally
+ * here; if it was already 0 it stays 0).
+ */
+function applyMidRelease(note, curMs) {
+  const rec = playHitMap.get(note);
+  if (!rec || !rec.isLN || rec.tailDone) return;
+  rec.tailDone = true;
+  rec.tailFailed = true;
+  playCombo = 0;
+  playJudgQueue.push({type: 'MISS', diff: undefined, t: curMs});
 }
 
 // checkPlayMisses moved to scheduler.js (binary-search + pointer).
@@ -4023,12 +4132,17 @@ function handlePlayKeyUp(code) {
         }
       }
     }
+    // Phase 6 D2: classify as mid-release vs tail success based on timing.
+    // Threshold: if release happens before (tailMs - JUDGE_GOOD), it's mid
+    // release. Released within ±JUDGE_GOOD of tail (or after tail) counts
+    // as tail success. Late release is forgiven — already past the tail
+    // tick means the LN was held all the way through.
     const curMs = playOffMs + (performance.now() - playT0) * playbackRate;
     const tailMs = t2ms(note.startTick + note.duration);
-    if (curMs - tailMs < -JUDGE_GOOD) {
-      // Released too early — miss
-      playCombo = 0;
-      playJudgQueue.push({type: 'MISS', diff: Math.round(curMs - tailMs), t: curMs});
+    if (curMs < tailMs - JUDGE_GOOD) {
+      applyMidRelease(note, curMs);
+    } else {
+      applyTailSuccess(note, curMs);
     }
   }
 }
@@ -4056,14 +4170,30 @@ function playLoop(ts) {
         n => playHitMap.has(n),
         (n, diff) => applyJudgment(n, diff, curMs, /*silent=*/true)
       );
+      // Phase 6 D2: in autoplay there is no key release event, so LN tails
+      // must be auto-completed when curMs passes the tail tick. We sweep
+      // playHitMap for any LN whose tail is still pending and whose tailMs
+      // has passed. This is O(active LN) per frame which is tiny.
+      for (const [n, rec] of playHitMap) {
+        if (rec.isLN && !rec.tailDone && curMs >= rec.tailMs) {
+          applyTailSuccess(n, curMs);
+        }
+      }
     } else {
       checkPlayMisses(
         curMs,
         n => playHitMap.has(n) || playMissSet.has(n),
         n => {
+          // Phase 6 D2: head-miss for an LN counts as 2 miss (head + tail
+          // both fail). Non-LN counts as 1 miss. Combo always resets — but
+          // only ONE "MISS" judgment text appears so the user doesn't see
+          // a double-flash for a single missed note.
           playMissSet.add(n);
           playCombo = 0;
           playJudgQueue.push({type: 'MISS', diff: undefined, t: curMs});
+          // (count is derived in drawPlayHUD: missSet.size for non-LN
+          // contributions and the LN-aware totalMiss calculation handles
+          // the "2 miss for LN head-miss" rule.)
         }
       );
     }
