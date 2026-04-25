@@ -1856,10 +1856,25 @@ function drawS() {
   const p2x = p => gx + sp2f(p) * gw;
 
   // 4.9: frame-scoped {sh, lines} cache (same pattern as drawGameFrame)
+  //
+  // Phase 3-5 (revisited): Shape tab has TWO kinds of visuals on the same
+  // canvas:
+  //   1. The blue/red chains themselves — must be raw (editor sees what
+  //      they're manipulating; crossings are intentional).
+  //   2. Notes positioned by column — must use min/max (notes belong to
+  //      lines L1..L4, which are always ordered left-to-right regardless
+  //      of which chain happens to be on which side).
+  // We cache both `sh` (raw) and `shN` (normalized). Curve-drawing code
+  // reads sh; note-positioning code (svGNX, etc.) reads shN.
   const _tkInfo = new Map();
   const getTkInfo = (tk) => {
     let info = _tkInfo.get(tk);
-    if (!info) { info = {sh: getShape(tk), lines: getLines(tk)}; _tkInfo.set(tk, info); }
+    if (!info) {
+      const raw = getShape(tk);
+      const shN = raw.left <= raw.right ? raw : { left: raw.right, right: raw.left };
+      info = { sh: raw, shN, lines: getLines(tk) };
+      _tkInfo.set(tk, info);
+    }
     return info;
   };
 
@@ -1978,7 +1993,7 @@ function drawS() {
   for (const wn of D.notes.filter(n => n.isWide && n.duration > 0)) {
     const wst = wn.startTick, wet = wst + wn.duration;
     if (wet < stT - TPB || wst > enT + TPB) continue;
-    const wGNX = (tk) => { const sh = getTkInfo(tk).sh; return {x: p2x(sh.left), w: p2x(sh.right) - p2x(sh.left)}; };
+    const wGNX = (tk) => { const sh = getTkInfo(tk).shN; return {x: p2x(sh.left), w: p2x(sh.right) - p2x(sh.left)}; };
     const wEvtCnt = countShapeEventsInRange(wst, wet);
     const wSteps = Math.min(120, Math.max(16, wEvtCnt * 6));
     const wStepTks = getStepTicks(wst, wet), wEvtTks = getShapeEventTicks(wst, wet);
@@ -1996,13 +2011,15 @@ function drawS() {
   }
 
   // Line dividers (3 inner lines) - step-aware using lPts ticks
+  // Phase 3-5: dividers separate L1..L4 columns and must follow the same
+  // normalized layout as the notes themselves.
   for (let ln = 0; ln < 3; ln++) {
     ctx.strokeStyle = '#ffffff22'; ctx.lineWidth = 1.5;
     ctx.beginPath();
     let fi = true;
     for (const pt of lPts) {
       const tk = pt.tk;
-      const info = getTkInfo(tk); const sh = info.sh, lines = info.lines;
+      const info = getTkInfo(tk); const sh = info.shN, lines = info.lines;
       const lx = p2x(sh.left), rx = p2x(sh.right), sw = rx - lx;
       let cum = 0;
       for (let k = 0; k <= ln; k++) cum += lines[k] / 100;
@@ -2017,10 +2034,13 @@ function drawS() {
   const _sovM = computeNoteOverlaps();
   const {wide: svWide, normW: svNormW, normY: svNormY} = classifyNotesForZOrder(D.notes, _sovM);
 
-  // Helper: get note position at tick
+  // Helper: get note position at tick.
+  // Phase 3-5: notes use the normalized shN (min/max) — line columns L1..L4
+  // are always laid out left-to-right regardless of which chain is on which
+  // side. Curve-drawing code in this canvas keeps using info.sh (raw).
   function svGNX(n, li, tk, isEnd) {
     const evalTk = isEnd && isStepTick(tk) ? tk - 0.0001 : tk;
-    const info = getTkInfo(evalTk); const sh = info.sh, lines = info.lines;
+    const info = getTkInfo(evalTk); const sh = info.shN, lines = info.lines;
     const lx = p2x(sh.left), rx = p2x(sh.right), sw = rx - lx;
     if (n.isWide) return {x: lx, w: sw};
     let cum = 0; for (let k = 0; k < li; k++) cum += lines[k] / 100;
@@ -2095,7 +2115,13 @@ function drawS() {
       let hx, hw;
       if (n.isWide && isStepTick(n.startTick)) {
         const stk = n.startTick;
-        const shB = getShape(stk - 0.0001), shA = getShape(stk + 0.0001);
+        // Phase 3-5: normalize for note rendering (consistent with svGNX
+        // which uses shN). Notes belong to the L1..L4 layout, never to
+        // raw chain identity. min/max of raw is identical to min/max of
+        // normalized, but we go through normalize for clarity.
+        const rawB = getShape(stk - 0.0001), rawA = getShape(stk + 0.0001);
+        const shB = rawB.left <= rawB.right ? rawB : { left: rawB.right, right: rawB.left };
+        const shA = rawA.left <= rawA.right ? rawA : { left: rawA.right, right: rawA.left };
         const lo = Math.min(shB.left,  shA.left);
         const hi = Math.max(shB.right, shA.right);
         hx = p2x(lo); hw = p2x(hi) - hx;
