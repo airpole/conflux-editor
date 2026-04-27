@@ -452,25 +452,40 @@ function addShapeEvt(tick, pos, isRight, easing) {
   // duration <= 0 as instant jump, so the rendered behavior matches the
   // legacy Step.
   //
-  // Tap-on-existing-tick semantics:
-  //   - Same destTick AND same targetPos → treat as no-op (overwrite is fine,
-  //     but most likely the user just tapped the existing point).
-  //   - Same destTick BUT different targetPos → create a SECOND event at
-  //     this tick. After normalize, the second one becomes duration=0,
-  //     producing an instant jump (the Phase 3-3 user-facing "step" workflow).
-  //   - Different destTick → normal new event (existing behavior).
-  const exist = D.shapeEvents.find(e => {
+  // Tap-on-existing-tick semantics (Phase 3-3 fix):
+  //   N events already at this destTick on this side:
+  //     N=0 → push new event (normal new point).
+  //     N=1 → push new event. After normalize, the second one becomes
+  //           duration=0, producing the user-facing "step" workflow.
+  //     N>=2 → cap. Update the LAST event's targetPos/easing instead of
+  //           pushing a new one. This prevents unbounded P3, P4, P5...
+  //           which would all collapse to duration=0 and only the last
+  //           one would have any effect anyway. Treats repeated taps as
+  //           "adjust the step's destination position".
+  const sameTickSameSide = D.shapeEvents.filter(e => {
     const dest = e.startTick + e.duration;
     return Math.abs(dest - tick) < 1 && e.isRight === isRight && e.easing !== null;
   });
-  if (exist && Math.abs(exist.targetPos - pos) < 0.01) {
-    // Same tick + same pos → just refresh easing on the existing point.
-    exist.easing = easing;
-  } else {
-    // Either no event at this tick, or there is one but the user wants a
-    // different position → push a new event. normalizeShapeChain will sort
-    // by destTick and assign duration=0 to the latter when ticks tie.
+  if (sameTickSameSide.length === 0) {
+    // First point at this tick → normal Linear point
     D.shapeEvents.push({startTick: 0, duration: tick, isRight, targetPos: pos, easing});
+  } else if (sameTickSameSide.length === 1) {
+    const exist = sameTickSameSide[0];
+    if (Math.abs(exist.targetPos - pos) < 0.01) {
+      // Same pos as the existing point → no-op (just refresh easing).
+      exist.easing = easing;
+    } else {
+      // Different pos → add a second point. Normalize will give it duration=0
+      // making this an instant jump (the "step" workflow).
+      D.shapeEvents.push({startTick: 0, duration: tick, isRight, targetPos: pos, easing});
+    }
+  } else {
+    // Already 2+ points at this tick. Update the LAST one's pos/easing.
+    // After normalize the last one is the duration=0 step destination —
+    // adjusting it just moves the step's landing position.
+    const last = sameTickSameSide[sameTickSameSide.length - 1];
+    last.targetPos = pos;
+    last.easing = easing;
   }
   normalizeShapeChain(isRight);
 }
@@ -2416,20 +2431,27 @@ function drawS() {
         const deltaTk = curTk - dragMoveDestTk0;
         const deltaPos = curPos - dragMovePos0;
         if (deltaTk !== 0 || deltaPos !== 0) {
-          for (const ev of selectedShapeEvts) {
-            // Move destTick
-            const oldDest = ev.startTick + ev.duration;
-            const newDest = Math.max(0, oldDest + deltaTk);
-            if (ev.duration === 0) { ev.startTick = newDest; }
-            else { ev.startTick = 0; ev.duration = newDest; }
-            // Move position
-            ev.targetPos = Math.max(0, Math.min(64, ev.targetPos + deltaPos));
-          }
-          normalizeShapeChain(false); normalizeShapeChain(true);
-          dragMoveDestTk0 = curTk;
-          dragMovePos0 = curPos;
-          drawS();
+        for (const ev of selectedShapeEvts) {
+          // Move destTick
+          const oldDest = ev.startTick + ev.duration;
+          const newDest = Math.max(0, oldDest + deltaTk);
+          // Phase 3-3 fix: do NOT preserve the old "duration === 0" status.
+          // Always re-express the event with startTick=0, duration=newDest
+          // and let normalizeShapeChain decide whether duration ends up 0
+          // (when the new dest matches prevEnd of the chain) or positive
+          // (linear interpolation). Without this, a point that ever became
+          // a "step" (duration=0) stayed a step forever, even after being
+          // dragged to a fresh tick.
+          ev.startTick = 0;
+          ev.duration = newDest;
+          // Move position
+          ev.targetPos = Math.max(0, Math.min(64, ev.targetPos + deltaPos));
         }
+        normalizeShapeChain(false); normalizeShapeChain(true);
+        dragMoveDestTk0 = curTk;
+        dragMovePos0 = curPos;
+        drawS();
+      }
       }
       return;
     }
