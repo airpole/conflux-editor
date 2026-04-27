@@ -20,16 +20,16 @@
 import { D } from './state.js';
 import { defineCache, get, invalidate } from './cache.js';
 
-// Shape event sort comparator: by startTick, then duration==0 first, then Step last.
-// Shared between the shapeChains cache and any ad-hoc shapeEvents sorting.
+// Shape event sort comparator: by startTick, then duration==0 first.
+// Phase 3-2: 'Step' easing has been removed. Events with duration=0 keep
+// the same instant-jump semantics they always had (handled in _evalSorted).
+// Comparator no longer needs a Step tiebreaker since 'Step' values are
+// migrated to 'Linear' on load.
 export function shapeEventCmp(a, b) {
   if (a.startTick !== b.startTick) return a.startTick - b.startTick;
   const aZ = (a.duration || 0) === 0 ? 0 : 1;
   const bZ = (b.duration || 0) === 0 ? 0 : 1;
-  if (aZ !== bZ) return aZ - bZ;
-  const aS = (a.easing === 'Step') ? 1 : 0;
-  const bS = (b.easing === 'Step') ? 1 : 0;
-  return aS - bS;
+  return aZ - bZ;
 }
 
 // ============================================================
@@ -180,13 +180,15 @@ export function isStepTick(tick) {
 
 // Arc auto-cycle: pick Out-Sine or In-Sine based on the previous event's easing on the same side.
 // Previous event = the transition (easing !== null) with the largest destTick strictly less than `tick`.
-// Out-Sine is chosen when there's no previous event, or the previous was Linear / Step / zero-duration / In-Sine.
+// Out-Sine is chosen when there's no previous event, or the previous was Linear / zero-duration / In-Sine.
 // Otherwise (previous was Out-Sine) returns In-Sine — creating the alternation that "Arc" mode is about.
+// Phase 3-2: 'Step' branch removed. Zero-duration Linear events behave the
+// same as the old Step (already covered by `prev.evt.duration === 0`).
 export function resolveArcEasing(isRight, tick) {
   const sideEvts = D.shapeEvents.filter(e => e.isRight === isRight && e.easing !== null);
   const sorted = sideEvts.map(e => ({evt: e, dest: e.startTick + e.duration})).sort((a, b) => a.dest - b.dest);
   const prev = sorted.filter(s => s.dest < tick).pop();
-  if (!prev || prev.evt.easing === 'Linear' || prev.evt.easing === 'Step' || prev.evt.duration === 0 || prev.evt.easing === 'In-Sine') {
+  if (!prev || prev.evt.easing === 'Linear' || prev.evt.duration === 0 || prev.evt.easing === 'In-Sine') {
     return 'Out-Sine';
   }
   return 'In-Sine';

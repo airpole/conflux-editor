@@ -73,8 +73,13 @@ function loadChartData(d) {
   if (!D.timeSignatures || D.timeSignatures.length === 0) D.timeSignatures = [{tick: 0, numerator: 4, denominator: 4}];
   if (d.shapeEvents) {
     D.shapeEvents = d.shapeEvents;
+    // Phase 3-2 (schemaVersion 2): 'Step' easing has been removed. Convert
+    // any legacy Step events to Linear — duration=0 already gives instant-
+    // jump semantics in _evalSorted, so the rendered shape is unchanged.
+    // (Older 'Still' and 'Arc' migrations kept for back-compat with v17 era.)
     D.shapeEvents.forEach(e => {
       if (e.easing === 'Still' || e.easing === 'Arc') e.easing = 'Linear';
+      if (e.easing === 'Step') e.easing = 'Linear';
     });
     invalidateShapeCache();
   }
@@ -91,6 +96,9 @@ function loadChartData(d) {
     });
   }
   D.textEvents = d.textEvents || []; // Always reset — don't carry over from previous file
+  // Phase 3-2: stamp current schema version. Migration above already
+  // converted any v1 'Step' easing to 'Linear'.
+  D.schemaVersion = 2;
   pvHitEffects = [];
   playHitMap.clear(); playMissSet.clear(); playEffects = [];
   playJudgQueue = []; playCombo = 0; playMaxCombo = 0;
@@ -437,24 +445,33 @@ function setGlobalPreset(val) {
 
 
 function addShapeEvt(tick, pos, isRight, easing) {
-  if (easing === 'Step') {
-    // Step = instant jump at tick, stored as duration=0, easing='Step'
-    const exist = D.shapeEvents.find(e => {
-      const dest = e.startTick + e.duration;
-      return Math.abs(dest - tick) < 1 && e.isRight === isRight && e.easing !== null && e.duration === 0;
-    });
-    if (exist) { exist.targetPos = pos; exist.easing = 'Step'; }
-    else D.shapeEvents.push({startTick: tick, duration: 0, isRight, targetPos: pos, easing: 'Step'});
-    normalizeShapeChain(isRight);
-    return;
-  }
-  // Check if event already exists at this destination tick
+  // Phase 3-2/3-3: 'Step' is no longer a distinct easing. A point placed at
+  // the same tick as the previous event in the chain becomes duration=0
+  // automatically — normalizeShapeChain (below) sets duration = max(0,
+  // dest - prevEnd), and dest === prevEnd yields 0. _evalSorted treats any
+  // duration <= 0 as instant jump, so the rendered behavior matches the
+  // legacy Step.
+  //
+  // Tap-on-existing-tick semantics:
+  //   - Same destTick AND same targetPos → treat as no-op (overwrite is fine,
+  //     but most likely the user just tapped the existing point).
+  //   - Same destTick BUT different targetPos → create a SECOND event at
+  //     this tick. After normalize, the second one becomes duration=0,
+  //     producing an instant jump (the Phase 3-3 user-facing "step" workflow).
+  //   - Different destTick → normal new event (existing behavior).
   const exist = D.shapeEvents.find(e => {
     const dest = e.startTick + e.duration;
     return Math.abs(dest - tick) < 1 && e.isRight === isRight && e.easing !== null;
   });
-  if (exist) { exist.targetPos = pos; exist.easing = easing; }
-  else D.shapeEvents.push({startTick: 0, duration: tick, isRight, targetPos: pos, easing});
+  if (exist && Math.abs(exist.targetPos - pos) < 0.01) {
+    // Same tick + same pos → just refresh easing on the existing point.
+    exist.easing = easing;
+  } else {
+    // Either no event at this tick, or there is one but the user wants a
+    // different position → push a new event. normalizeShapeChain will sort
+    // by destTick and assign duration=0 to the latter when ticks tie.
+    D.shapeEvents.push({startTick: 0, duration: tick, isRight, targetPos: pos, easing});
+  }
   normalizeShapeChain(isRight);
 }
 
@@ -1764,7 +1781,8 @@ function setST(t) {
 function pickEase(name) {
   $('easeS').value = name;
   $('easeRS').value = name;
-  const easeNames = ['Linear','Arc','Out-Sine','In-Sine','Step'];
+  // Phase 3-2: 'Step' removed from easing options.
+  const easeNames = ['Linear','Arc','Out-Sine','In-Sine'];
   easeNames.forEach(n => {
     const btn = $('easeBtn_' + n);
     if (btn) { 
@@ -2192,6 +2210,9 @@ function drawS() {
     }
 
     // Label
+    // Phase 3-2: 'Step' here is a UI label describing the *behavior* (instant
+    // jump at this tick), not the stored easing — duration=0 events have
+    // easing='Linear' since v21 schemaVersion 2.
     const lbl = e.easing === null ? 'Init' : e.duration === 0 ? 'Step' : e.easing.substring(0, 3);
     ctx.fillStyle = '#aaa'; ctx.font = '6px sans-serif';
     ctx.fillText(lbl + ' ' + posToExtStr(e.targetPos), x + 6, y + 2);
@@ -2599,12 +2620,10 @@ function handleSTap(e) {
       // Arc mode: auto-cycle for pinch too
       if (easingL === 'Arc') easingL = resolveArcEasing(false, snp);
       if (easingR === 'Arc') easingR = resolveArcEasing(true, snp);
-      let pinchPos = snpPos;
-      if (easingL === 'Step' && easingR === 'Step') {
-        pinchPos = snapPos((shBefore.left + shBefore.right) / 2);
-      }
-      addShapeEvt(snp, pinchPos, false, easingL);
-      addShapeEvt(snp, pinchPos, true, easingR);
+      // Phase 3-2: special-case for Step+Step (snap to current center) was
+      // removed along with Step easing. Pinch always uses the tapped position.
+      addShapeEvt(snp, snpPos, false, easingL);
+      addShapeEvt(snp, snpPos, true, easingR);
     } else if (sTool === 'C') {
       let cEasing = easing;
       // Arc mode: auto-cycle for center too (based on Left side's previous easing)
@@ -4475,12 +4494,11 @@ document.addEventListener('keydown', (e) => {
     if (key === 't') { setST('line'); return; } // Line
     if (key === 's') { toggleMirror(); return; } // Mirror
     if (key === 'v') { cyclePosSnap(); return; } // Cycle pos snap
-    // Easing shortcuts: 1-5
+    // Easing shortcuts: 1-4 (Phase 3-2: Step removed)
     if (key === '1') { pickEase('Arc'); return; }
     if (key === '2') { pickEase('Out-Sine'); return; }
     if (key === '3') { pickEase('In-Sine'); return; }
     if (key === '4') { pickEase('Linear'); return; }
-    if (key === '5') { pickEase('Step'); return; }
     return;
   }
 });

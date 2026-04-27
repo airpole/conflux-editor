@@ -184,12 +184,11 @@ canvas{display:block;position:absolute;top:0;left:0}
         <button class="t" id="easeBtn_Out-Sine" onclick="pickEase('Out-Sine')" style="border-color:#a855f7;color:#a855f7" title="Out-Sine easing [2]">Out</button>
         <button class="t" id="easeBtn_In-Sine" onclick="pickEase('In-Sine')" style="border-color:#a855f7;color:#a855f7" title="In-Sine easing [3]">In</button>
         <button class="t" id="easeBtn_Linear" onclick="pickEase('Linear')" style="border-color:#a855f7;color:#a855f7" title="Linear easing [4]">Lin</button>
-        <button class="t" id="easeBtn_Step" onclick="pickEase('Step')" style="border-color:#a855f7;color:#a855f7" title="Step easing [5]">St</button>
         <button class="t on" id="sFollowBtn" onclick="toggleSFollow()" style="border-color:#ffe44a" title="Follow playback [F]">Fol</button>
         <button class="t" id="sMirrorBtn" onclick="toggleMirror()" style="border-color:var(--lime)" title="Mirror mode [S]">Mir</button>
       </div>
-      <select id="easeS" style="display:none"><option>Linear</option><option selected>Arc</option><option>Out-Sine</option><option>In-Sine</option><option>Step</option></select>
-      <select id="easeRS" style="display:none"><option>Linear</option><option selected>Arc</option><option>Out-Sine</option><option>In-Sine</option><option>Step</option></select>
+      <select id="easeS" style="display:none"><option>Linear</option><option selected>Arc</option><option>Out-Sine</option><option>In-Sine</option></select>
+      <select id="easeRS" style="display:none"><option>Linear</option><option selected>Arc</option><option>Out-Sine</option><option>In-Sine</option></select>
     </div>
     <div class="cbody" id="sBody">
       <canvas id="sCv"></canvas>

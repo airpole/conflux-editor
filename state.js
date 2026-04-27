@@ -4,8 +4,14 @@
 // The single source of truth for chart content. Never reassigned;
 // only its fields are mutated (D.notes.push(...), D.tempo = [...], etc).
 // ES module live bindings make `D.foo = bar` visible across all importers.
+//
+// schemaVersion:
+//   1  (or absent) = pre-Phase 3-2 format. May contain easing: 'Step'.
+//                    loadChartData migrates these to easing: 'Linear'.
+//   2  = current.   No 'Step' easing. duration=0 expresses instant jump.
 
 export const D = {
+  schemaVersion: 2,
   metadata: {
     title: "Untitled", subtitle: "", artist: "airpole", charter: "airpole",
     audioFile: "", offset: 0, difficulty: "Trace", level: 0
