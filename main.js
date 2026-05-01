@@ -3409,24 +3409,39 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
 // ============================================================
 //  AUDIO ENGINE
 // ============================================================
-function loadAud(inp) {
+// Modernized for mobile reliability (Galaxy S24+ Chromium):
+//  - await actx.resume() so decodeAudioData never runs on a suspended context
+//    (legacy callback form silent-fails there on some Chromium builds).
+//  - Promise-based decodeAudioData + try/catch — failures now surface as toast.
+//  - f.arrayBuffer() instead of FileReader (no onerror gap, simpler control flow).
+//  - inp.value reset in finally so re-picking the same file always re-fires onchange,
+//    even if a previous attempt failed.
+async function loadAud(inp) {
   const f = inp.files[0]; if (!f) return;
-  initAud();
-  const r = new FileReader();
-  r.onload = () => {
-    actx.decodeAudioData(r.result, b => {
-      abuf = b; audioMs = b.duration * 1000; updateTotalMs();
-      $('audS').textContent = `${f.name} (${b.duration.toFixed(1)}s)`;
-      const ch0 = b.getChannelData(0);
-      const ch1 = b.numberOfChannels > 1 ? b.getChannelData(1) : ch0;
-      const factor = Math.max(1, Math.floor(b.sampleRate / 8000));
-      const len = Math.floor(ch0.length / factor);
-      waveData = new Float32Array(len); waveSR = b.sampleRate / factor;
-      for (let i = 0; i < len; i++) { const si = i * factor; let peak = 0; for (let j = 0; j < factor && si + j < ch0.length; j++) peak = Math.max(peak, Math.abs((ch0[si + j] + ch1[si + j]) * 0.5)); waveData[i] = peak; }
-      drawN();
-    });
-  };
-  r.readAsArrayBuffer(f);
+  $('audS').textContent = `Loading ${f.name}…`;
+  try {
+    initAud();
+    if (actx.state === 'suspended') {
+      try { await actx.resume(); } catch (_) {}
+    }
+    const buf = await f.arrayBuffer();
+    const b = await actx.decodeAudioData(buf);
+    abuf = b; audioMs = b.duration * 1000; updateTotalMs();
+    $('audS').textContent = `${f.name} (${b.duration.toFixed(1)}s)`;
+    const ch0 = b.getChannelData(0);
+    const ch1 = b.numberOfChannels > 1 ? b.getChannelData(1) : ch0;
+    const factor = Math.max(1, Math.floor(b.sampleRate / 8000));
+    const len = Math.floor(ch0.length / factor);
+    waveData = new Float32Array(len); waveSR = b.sampleRate / factor;
+    for (let i = 0; i < len; i++) { const si = i * factor; let peak = 0; for (let j = 0; j < factor && si + j < ch0.length; j++) peak = Math.max(peak, Math.abs((ch0[si + j] + ch1[si + j]) * 0.5)); waveData[i] = peak; }
+    drawN();
+    toast('Audio loaded');
+  } catch (e) {
+    $('audS').textContent = 'No audio (load failed)';
+    toast('Audio load failed: ' + (e && e.message ? e.message : e));
+  } finally {
+    inp.value = '';
+  }
 }
 
 let _audStartCtxTime = 0, _audStartSec = 0;
@@ -3477,21 +3492,24 @@ function doExport() {
   a.click(); URL.revokeObjectURL(u);
 }
 
-function doImport(inp) {
+// Modernized: f.text() instead of FileReader (avoids the race where mobile
+// browsers detach the File when inp.value clears mid-read), inp.value reset
+// in finally so it happens after the read settles.
+async function doImport(inp) {
   const f = inp.files[0]; if (!f) return;
-  const r = new FileReader();
-  r.onload = () => {
-    try {
-      const d = JSON.parse(r.result);
-      loadChartData(d);
-      currentFileName = f.name.replace(/\.json$/i, '');
-      compBPM(); syncMeta(); drawN(); drawS(); saveHist('n'); saveHist('s'); saveHist('m');
-      closeMod('fileMod');
-      toast('Imported: ' + f.name);
-    } catch (e) { toast('Error: ' + e.message); }
-  };
-  r.readAsText(f);
-  inp.value = '';
+  try {
+    const text = await f.text();
+    const d = JSON.parse(text);
+    loadChartData(d);
+    currentFileName = f.name.replace(/\.json$/i, '');
+    compBPM(); syncMeta(); drawN(); drawS(); saveHist('n'); saveHist('s'); saveHist('m');
+    closeMod('fileMod');
+    toast('Imported: ' + f.name);
+  } catch (e) {
+    toast('Error: ' + (e && e.message ? e.message : e));
+  } finally {
+    inp.value = '';
+  }
 }
 
 function syncMeta() {
