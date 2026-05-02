@@ -324,11 +324,14 @@ function drawJacketBackground(ctx, gx, gy, gw, gh) {
   const jY = gy + gh * (8 / 9);
   const upperH = jY - gy;
 
-  // Rebuild blur if dimensions drifted enough (window resize, fullscreen toggle).
-  // We size the cached backdrop to the upper area now (not the whole game),
-  // so resolution targeting stays accurate.
+  // Rebuild blur if dimensions drifted enough. ctx.filter='blur(40px)' is
+  // expensive on GPU-limited devices, so we deliberately tolerate up to 50%
+  // drift before rebuilding — visual softening at that scale is imperceptible.
+  // Per-frame canvas self-correction can produce small pixel-level
+  // fluctuations (devicePixelRatio rounding, browser chrome show/hide), and
+  // this threshold makes those a no-op for blur regeneration.
   if (!_jacketBlurCanvas ||
-      Math.abs(_jacketBlurW - gw) > gw * 0.5 ||
+      Math.abs(_jacketBlurW - gw)     > gw     * 0.5 ||
       Math.abs(_jacketBlurH - upperH) > upperH * 0.5) {
     _rebuildJacketBlur(gw, upperH);
   }
@@ -853,6 +856,50 @@ window.addEventListener('resize', () => {
   resizeTimer  = setTimeout(() => { resizeTimer = null;  run(); }, 100);
   resizeTimer2 = setTimeout(() => { resizeTimer2 = null; run(); }, 320);
 });
+
+// Phase 7-3 (perf+robustness): also wire orientationchange and the
+// VisualViewport API. Samsung Internet doesn't reliably fire `resize` for
+// every layout-shift moment during a windowed→fullscreen→rotate sequence;
+// these supplementary signals catch the gap. The actual sizing work happens
+// per-frame in playLoop's _ensurePlayCanvasSized when a session is active —
+// these listeners exist mainly to keep idle-state previews correct.
+window.addEventListener('orientationchange', () => {
+  setTimeout(() => { rszActiveCanvas(); redrawActiveTab(); }, 200);
+  setTimeout(() => { rszActiveCanvas(); redrawActiveTab(); }, 600);
+});
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { resizeTimer = null; rszActiveCanvas(); redrawActiveTab(); }, 120);
+  });
+}
+
+// Phase 7-3: ResizeObserver on the playFS overlay. Fires whenever its
+// rendered size changes — orientation, fullscreen toggle, browser chrome
+// expand/collapse, anything. This is the most reliable mobile signal for
+// "the thing the canvas should fill just changed shape." We re-call
+// rszPlayFSCanvas (via _ensurePlayCanvasSized internally) on every event.
+// During an active session playLoop self-corrects too, so this is mainly
+// for idle preview and the boundary case of "just toggled to fullscreen
+// before the first frame ran".
+if (window.ResizeObserver) {
+  const ro = new ResizeObserver(() => {
+    const dom = _getPlayDom();
+    if (!dom.fs) return;
+    if (playFullscreen || dom.fs.classList.contains('show')) {
+      _ensurePlayCanvasSized(dom.fsCv, dom.fs);
+      if (!playActive && dom.fs.classList.contains('show')) {
+        drawPlayScreen(dom.fsCv, sharedMs);
+      }
+    }
+  });
+  // Defer until DOM ready
+  document.addEventListener('DOMContentLoaded', () => {
+    const dom = _getPlayDom();
+    if (dom.fs) ro.observe(dom.fs);
+    if (dom.plCv && dom.plCv.parentElement) ro.observe(dom.plCv.parentElement);
+  });
+}
 
 // ============================================================
 //  GRID PICKER
@@ -4224,22 +4271,61 @@ function loadKeyBindings() {
 // ============================================================
 //  PLAY MODE — CANVAS RESIZE
 // ============================================================
-function rszPlayFSCanvas() {
-  const cv = $('playFSCv'); if (!cv) return;
-  const fs = $('playFS'); if (!fs) return;
-  const dpr = devicePixelRatio;
-  // Phase 7-3 (revisited): use the overlay container's actual bounding box
-  // rather than window.innerWidth/Height. During orientation changes and
-  // fullscreen transitions, window.innerWidth lags behind the visible
-  // viewport (especially on Samsung Internet), producing canvases that are
-  // too narrow or off-screen. The overlay is `position:fixed; width:100%;
-  // height:100%` so its rect IS the visible play surface, post-transition.
-  // If the overlay isn't actually displayed yet, bail — caller will retry.
-  const r = fs.getBoundingClientRect();
+// Phase 7-3 (perf): cache play-mode DOM refs at first use. The play loop hits
+// these every frame; document.getElementById is cheap individually but
+// cumulative calls (4–5 per frame × 60 fps) are measurable on Samsung Internet.
+const _playDom = { plCv:null, fsCv:null, fs:null, seek:null, time:null, btn:null };
+function _getPlayDom() {
+  if (!_playDom.plCv) {
+    _playDom.plCv = $('plCv');
+    _playDom.fsCv = $('playFSCv');
+    _playDom.fs   = $('playFS');
+    _playDom.seek = $('playSeek');
+    _playDom.time = $('playTime');
+    _playDom.btn  = $('playBtn');
+  }
+  return _playDom;
+}
+
+/**
+ * Self-correcting canvas resize. Called every play frame: reads the live
+ * bounding rect of the target container (full overlay or .cbody) and only
+ * touches cv.width/height/style if the dimensions actually changed.
+ *
+ * Why not rely on resize/fullscreenchange/orientationchange events alone:
+ * On Samsung Internet, windowed → ⛶ → rotate fires events that don't always
+ * land at a moment when the layout is settled — getBoundingClientRect samples
+ * stale dims, the canvas keeps its pre-rotation bitmap, and the user sees
+ * the symptom in the screenshot (canvas in a corner, viewport mostly black).
+ * Per-frame correction is the cheapest robust fix: when layout finally settles
+ * (whether on the next paint or 5 paints later) the canvas snaps to the right
+ * size automatically.
+ */
+function _ensurePlayCanvasSized(cv, containerEl) {
+  if (!cv || !containerEl) return;
+  const r = containerEl.getBoundingClientRect();
   if (r.width < 1 || r.height < 1) return;
-  const w = r.width, h = r.height;
-  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
-  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  const dpr = devicePixelRatio;
+  const targetW = Math.round(r.width * dpr);
+  const targetH = Math.round(r.height * dpr);
+  if (cv.width !== targetW)  cv.width  = targetW;
+  if (cv.height !== targetH) cv.height = targetH;
+  // Style dims are read by drawPlayScreen via cv.width/dpr, so keep them in
+  // sync too. CSS `width:100%; height:100%` already handles layout for the
+  // fullscreen overlay; this is mostly belt-and-braces for windowed.
+  const sw = r.width + 'px', sh = r.height + 'px';
+  if (cv.style.width !== sw)   cv.style.width  = sw;
+  if (cv.style.height !== sh)  cv.style.height = sh;
+}
+
+/**
+ * Legacy entry point retained for callers that want an explicit one-shot
+ * resize (toggle, fullscreenchange handler). Implemented in terms of the
+ * self-correcting helper above.
+ */
+function rszPlayFSCanvas() {
+  const dom = _getPlayDom();
+  _ensurePlayCanvasSized(dom.fsCv, dom.fs);
 }
 
 // ============================================================
@@ -4717,8 +4803,16 @@ function playLoop(ts) {
       );
     }
   }
-  const cv = playFullscreen ? $('playFSCv') : $('plCv');
-  if (cv) drawPlayScreen(cv, curMs);
+  // Phase 7-3 (revisited): use cached play DOM refs and a self-correcting
+  // size pass so transitions (rotation, fullscreen toggle, browser chrome
+  // show/hide) snap the canvas to the right dimensions on the next frame —
+  // no reliance on resize/fullscreenchange events being timely.
+  const dom = _getPlayDom();
+  const cv = playFullscreen ? dom.fsCv : dom.plCv;
+  if (cv) {
+    _ensurePlayCanvasSized(cv, playFullscreen ? dom.fs : (cv.parentElement));
+    drawPlayScreen(cv, curMs);
+  }
   // Phase 7-3: in windowed mode, the playbar (seek slider, time display) is
   // visible — keep them in sync so the user sees real progress. Throttle by
   // skipping the DOM write when the value didn't actually change at slider
@@ -4727,15 +4821,13 @@ function playLoop(ts) {
   // dragging the seek thumb (_seekDragMs is non-null). Otherwise the playLoop
   // would fight the user's pointer for the slider value.
   if (!playFullscreen && totalMs > 0 && _seekDragMs == null) {
-    const seek = $('playSeek');
-    if (seek) {
+    if (dom.seek) {
       const newVal = Math.max(0, Math.min(1000, Math.round((curMs / totalMs) * 1000)));
-      if (+seek.value !== newVal) seek.value = newVal;
+      if (+dom.seek.value !== newVal) dom.seek.value = newVal;
     }
-    const tm = $('playTime');
-    if (tm) {
+    if (dom.time) {
       const txt = fmtMs(Math.max(0, curMs));
-      if (tm.textContent !== txt) tm.textContent = txt;
+      if (dom.time.textContent !== txt) dom.time.textContent = txt;
     }
   }
   if (curMs > (totalMs || 0) + 2000) { stopPlay(); return; }
