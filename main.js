@@ -317,27 +317,36 @@ function drawJacketBackground(ctx, gx, gy, gw, gh) {
   const alpha = Math.max(0, Math.min(1, bright / 100));
   if (alpha <= 0) return;
 
+  // Phase 7-3 (revisited): jacket only paints the area ABOVE the judgment
+  // line (gy ... gy + gh*8/9). The shape area background and the HUD strip
+  // below the judgment line stay opaque dark so they remain readable
+  // regardless of the jacket's content.
+  const jY = gy + gh * (8 / 9);
+  const upperH = jY - gy;
+
   // Rebuild blur if dimensions drifted enough (window resize, fullscreen toggle).
-  // We don't need pixel-perfect — just close to the draw target so we don't
-  // upscale a tiny cached image into a large canvas (visible softness)
-  // or downscale a huge cached image (wasted memory).
+  // We size the cached backdrop to the upper area now (not the whole game),
+  // so resolution targeting stays accurate.
   if (!_jacketBlurCanvas ||
       Math.abs(_jacketBlurW - gw) > gw * 0.5 ||
-      Math.abs(_jacketBlurH - gh) > gh * 0.5) {
-    _rebuildJacketBlur(gw, gh);
+      Math.abs(_jacketBlurH - upperH) > upperH * 0.5) {
+    _rebuildJacketBlur(gw, upperH);
   }
 
   ctx.save();
+  // Clip to the upper region so any incidental overflow (blur softening,
+  // alpha edges) can't bleed into the shape area or HUD strip below.
+  ctx.beginPath(); ctx.rect(gx, gy, gw, upperH); ctx.clip();
   ctx.globalAlpha = alpha;
-  // 1) Blur covers the whole game area
+  // 1) Blur fills the upper letterbox region
   if (_jacketBlurCanvas) {
-    ctx.drawImage(_jacketBlurCanvas, gx, gy, gw, gh);
+    ctx.drawImage(_jacketBlurCanvas, gx, gy, gw, upperH);
   }
-  // 2) Crisp square overlaid in the upper half, above the judgment line
-  //    (jY = gy + gh*8/9). Size: take the smaller of (gw, gh*8/9) * 0.55 to
-  //    leave breathing room around the square.
-  const upperH = gh * (8 / 9);
-  const sq = Math.min(gw, upperH) * 0.55;
+  // 2) Crisp square overlaid in the upper region, centered both axes.
+  //    Size: take the smaller of (gw, upperH) * 0.85 — large enough to be
+  //    the focal point, small enough to leave clear blur margins on the sides
+  //    when the screen is wider than tall.
+  const sq = Math.min(gw, upperH) * 0.85;
   const sx = gx + (gw - sq) / 2;
   const sy = gy + (upperH - sq) / 2;
   ctx.drawImage(_jacketImg, sx, sy, sq, sq);
@@ -748,67 +757,78 @@ function goFS() {
   }
 }
 function onFullscreenChange() {
-  setTimeout(() => {
+  // Phase 7-3 (revisited): the orientation/transition race that produced
+  // sticky `playFS.show` overlays (UI hidden, canvas tiny in corner) needs
+  // the flag and the DOM class to be reconciled with the *actual* fullscreen
+  // state on every event, not just inferred from our own `playFullscreen`
+  // flag. Two delayed passes — 80ms (early settle) and 250ms (late settle)
+  // — catch both fast desktop transitions and slow mobile ones.
+  const reconcile = () => {
     const stillFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
-    // Phase 7-3: differentiate by entry path.
-    //   - Restart-launched session → exiting fullscreen ends the session
-    //     (Esc, swipe-down on mobile, rotate to portrait, etc.).
-    //   - Play-from-seek windowed session that promoted to fullscreen later
-    //     → exiting fullscreen returns to windowed rendering, playback
-    //     continues. The user must hit ⏸ on the playbar to actually stop.
-    if (!stillFs && playFullscreen && playActive) {
-      if (playStartedFromBeginning) {
-        stopPlay();
-      } else {
-        // Demote to windowed: keep the session alive but render to plCv from
-        // here on. The fullscreen overlay div is hidden so the page chrome
-        // (playbar / seekbar) is visible again.
+    const fsEl = $('playFS');
+    if (!stillFs) {
+      // Real state says we're NOT in fullscreen. Make sure the overlay div
+      // isn't blocking the page chrome — this is the bug from the screenshots
+      // where playFS.show stuck around after a rotation-driven exit.
+      if (fsEl) fsEl.classList.remove('show');
+      if (playFullscreen && playActive) {
+        // Session was launched fullscreen, OS just exited it.
+        if (playStartedFromBeginning) {
+          // Restart-launched: ending fullscreen ends the session.
+          playFullscreen = false;
+          stopPlay();
+          return;
+        }
+        // Windowed-launched session that was promoted: demote back to plCv.
         playFullscreen = false;
-        $('playFS').classList.remove('show');
-        rszActiveCanvas();
+      } else if (playFullscreen) {
+        // Idle (no active play) but flag still set — clear it.
+        playFullscreen = false;
       }
+    } else {
+      // Real state says we ARE in fullscreen. If we have an active play
+      // session, make sure the overlay shows and the flag matches.
+      if (playActive && fsEl && !fsEl.classList.contains('show')) {
+        fsEl.classList.add('show');
+      }
+      if (playActive && !playFullscreen) playFullscreen = true;
     }
-    rszActiveCanvas(); redrawActiveTab();
-  }, 150);
+    rszActiveCanvas();
+    redrawActiveTab();
+  };
+  setTimeout(reconcile, 80);
+  setTimeout(reconcile, 250);
 }
 document.addEventListener('fullscreenchange', onFullscreenChange);
 document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
-// Phase 7-3: Landscape rotation → auto-promote a windowed Play session to
-// fullscreen. Returning to portrait does NOT auto-exit (there's also
-// no auto-exit pathway — the user will see the windowed playbar reappear
-// once they hit the manual ⛶ exit, or rotate back if they prefer). We rely
-// on matchMedia rather than `screen.orientation` to keep behavior consistent
-// across desktop browser dev-tools simulations and real devices.
-//
-// Restart-launched (fromBeginning) sessions are already fullscreen, so this
-// listener has no effect on that path.
-const _orientationLandscapeMQ = window.matchMedia('(orientation: landscape)');
-function _onOrientationLandscape(mq) {
-  if (!mq.matches) return;             // portrait → no-op
-  if (!playActive || playFullscreen) return; // not eligible
-  if (playStartedFromBeginning) return; // would already be fullscreen
-  togglePlayFullscreen();
-}
-// Modern Safari/Firefox use addEventListener; older Safari uses addListener.
-if (_orientationLandscapeMQ.addEventListener) {
-  _orientationLandscapeMQ.addEventListener('change', _onOrientationLandscape);
-} else if (_orientationLandscapeMQ.addListener) {
-  _orientationLandscapeMQ.addListener(_onOrientationLandscape);
-}
+// Phase 7-3 (revisited): orientation-driven auto-fullscreen REMOVED.
+// Earlier iteration auto-promoted a windowed Play session to fullscreen on
+// landscape rotation, but in practice repeated rotations and manual toggles
+// raced the resize/fullscreenchange events and broke the canvas layout
+// (UI disappearing, viewport-clipped rendering). User opts into fullscreen
+// via the ⛶ button only.
 
 // ============================================================
 //  CANVAS RESIZE
 // ============================================================
 function rszActiveCanvas() {
   const dpr = devicePixelRatio;
-  const ids = activeTab === 'note' ? ['nCv'] : activeTab === 'shape' ? ['sCv'] : activeTab === 'play' ? ['plCv'] : [];
+  // Phase 7-3 (revisited): when Play is fullscreen, plCv is occluded by the
+  // playFS overlay anyway — skip resizing it here so its dimensions don't
+  // get clobbered by a tiny container during the transition. The fullscreen
+  // canvas is (re)sized below.
+  const skipPlay = (activeTab === 'play' && playFullscreen);
+  const ids = activeTab === 'note' ? ['nCv']
+            : activeTab === 'shape' ? ['sCv']
+            : (activeTab === 'play' && !skipPlay) ? ['plCv']
+            : [];
   for (const id of ids) {
     const cv = $(id); if (!cv) continue;
     const p = cv.parentElement;
     const r = p.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) continue;
-    cv.width = r.width * dpr; cv.height = r.height * dpr;
+    cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
     cv.style.width = r.width + 'px'; cv.style.height = r.height + 'px';
   }
   if (playFullscreen) rszPlayFSCanvas();
@@ -820,10 +840,18 @@ function redrawActiveTab() {
   else if (activeTab === 'play' && !playActive) drawPlayIdle();
 }
 
-let resizeTimer = null;
+let resizeTimer = null, resizeTimer2 = null;
 window.addEventListener('resize', () => {
+  // Phase 7-3 (revisited): orientation changes on Samsung Internet emit
+  // resize events while window.innerWidth is mid-transition. A single
+  // debounced handler can sample the wrong moment. Two-pass settle (early
+  // 100ms + late 320ms) catches both the initial layout shift and the
+  // post-animation final size.
   if (resizeTimer) clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { resizeTimer = null; rszActiveCanvas(); redrawActiveTab(); }, 80);
+  if (resizeTimer2) clearTimeout(resizeTimer2);
+  const run = () => { rszActiveCanvas(); redrawActiveTab(); };
+  resizeTimer  = setTimeout(() => { resizeTimer = null;  run(); }, 100);
+  resizeTimer2 = setTimeout(() => { resizeTimer2 = null; run(); }, 320);
 });
 
 // ============================================================
@@ -3035,53 +3063,100 @@ function playRestart() {
   startPlay(true, playAutoplay);
 }
 
+/**
+ * Phase 7-3 (revisited): seek interaction split into preview (oninput, fires
+ * continuously while the user drags the thumb) and commit (onchange, fires
+ * when the user releases the thumb). The preview pass updates only the time
+ * label and idle frame — no audio restart, no scheduler reset, no combo
+ * reseed. The commit pass actually moves the playhead.
+ *
+ * During an active session we ALSO defer commits to release: continuous
+ * audio restarts during a drag would stutter audio and re-trigger the
+ * scheduler O(n) times. The user sees the time label and idle preview
+ * (visible alongside the live game frame inside the windowed canvas) so the
+ * drag is still feedback-rich.
+ */
+let _seekDragMs = null; // active preview ms during drag (null when not dragging)
+function playSeekPreview(v) {
+  if (!totalMs) return;
+  const ms = (v / 1000) * totalMs;
+  _seekDragMs = ms;
+  const tm = $('playTime'); if (tm) tm.textContent = fmtMs(ms);
+  if (!playActive) {
+    sharedMs = ms;
+    drawPlayIdle();
+  }
+}
+
 function playSeekTo(v) {
-  if (playActive) return; // ignore during session
-  sharedMs = (v / 1000) * totalMs;
-  $('playTime').textContent = fmtMs(sharedMs);
-  drawPlayIdle();
+  _seekDragMs = null;
+  if (!totalMs) return;
+  const ms = (v / 1000) * totalMs;
+  sharedMs = ms;
+  $('playTime').textContent = fmtMs(ms);
+  if (!playActive) { drawPlayIdle(); return; }
+  // Live seek during a session: pause audio, jump scheduler/miss/auto pointers,
+  // wipe play state, reseed combo & accuracy as if the past had been autoplayed.
+  // This matches the entry-time semantics — AP/FC eligibility is preserved.
+  stopAud();
+  playOffMs = ms;
+  playT0 = performance.now();
+  playHitMap.clear(); playMissSet.clear(); playEffects = [];
+  playCombo = 0; playMaxCombo = 0; playJudgQueue = [];
+  playHoldState = {}; playKeyHeld.clear();
+  seedPlayStateFromCurMs(ms);
+  resetMissChecker(ms);
+  resetHitScheduler(ms);
+  resetAutoJudger(ms);
+  // Restart audio at the new position. Lead-in semantics don't apply mid-session.
+  if (ms >= 0) {
+    startAud(ms + D.metadata.offset);
+    playAudioStarted = true;
+  } else {
+    playAudioStarted = false;
+  }
 }
 
 /**
  * Phase 7-3: toggle fullscreen during a play session, OR enter fullscreen
- * preview when no session is active. The button is always visible on the
- * playbar; behavior:
- *   - playActive && playFullscreen=false → request fullscreen, render shifts
- *     to playFSCv on next frame. Session continues uninterrupted.
- *   - playActive && playFullscreen=true → exit fullscreen. onFullscreenChange
- *     demotes back to windowed (since playStartedFromBeginning is false in
- *     this scenario — Restart-launched sessions don't expose this button
- *     interactively because they're already fullscreen).
- *   - !playActive → just toggle document fullscreen on the play overlay so
- *     the user can preview the static frame in fullscreen if they want.
+ * preview when no session is active. Uses the real document.fullscreenElement
+ * as source of truth (rather than our `playFullscreen` flag) so repeated
+ * clicks during a transition don't push the state and the API out of sync.
+ *
+ *   - In real fullscreen → exit. onFullscreenChange handles overlay cleanup.
+ *   - Not in fullscreen → request it on the playFS overlay, schedule
+ *     rszPlayFSCanvas after both early (80ms) and late (300ms) settle so a
+ *     slow mobile transition doesn't leave the canvas at the pre-transition
+ *     dimensions.
  */
 function togglePlayFullscreen() {
-  if (playActive && playFullscreen) {
+  const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  if (isFs) {
     const exit = document.exitFullscreen || document.webkitExitFullscreen;
     if (exit) exit.call(document).catch(() => {});
     return;
   }
-  if (playActive && !playFullscreen) {
-    const el = $('playFS');
-    el.classList.add('show');
-    playFullscreen = true;
-    const req = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (req) req.call(el).catch(() => {});
-    setTimeout(rszPlayFSCanvas, 80);
-    return;
-  }
-  // Idle preview fullscreen — uncommon path but fine to support.
   const el = $('playFS');
-  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-    el.classList.add('show');
-    const req = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (req) req.call(el).catch(() => {});
-    setTimeout(() => { rszPlayFSCanvas(); drawPlayScreen($('playFSCv'), sharedMs); }, 80);
-  } else {
-    const exit = document.exitFullscreen || document.webkitExitFullscreen;
-    if (exit) exit.call(document).catch(() => {});
-    el.classList.remove('show');
-  }
+  if (!el) return;
+  el.classList.add('show');
+  if (playActive) playFullscreen = true;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (req) req.call(el).catch(() => {});
+  // Two-pass resize: catch both fast desktop and slow mobile transitions.
+  // Each pass is a no-op if the overlay isn't actually displayed (rect
+  // width/height < 1) — see rszPlayFSCanvas's bounding-rect guard.
+  const draw = () => {
+    rszPlayFSCanvas();
+    const cv = $('playFSCv'); if (!cv) return;
+    if (playActive) {
+      const curMs = playOffMs + (performance.now() - playT0) * playbackRate;
+      drawPlayScreen(cv, curMs);
+    } else {
+      drawPlayScreen(cv, sharedMs);
+    }
+  };
+  setTimeout(draw, 80);
+  setTimeout(draw, 300);
 }
 
 // ============================================================
@@ -3129,11 +3204,10 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   const {lP, rP, stepTicks} = buildShapePointArrays(botTk, topTk, steps, tk2y, p2x);
 
   // --- Draw filled shape area ---
-  // Phase 7-3: skip the opaque dark fill when a jacket backdrop is present —
-  // otherwise it would cover the very thing we just drew. The shape outline
-  // (drawn just below) plus the boundary strokes still demarcate the playable
-  // area visually.
-  if (lP.length > 1 && !_jacketImg) {
+  // Phase 7-3 (revisited): always opaque — jacket is now confined to the
+  // letterbox area above the judgment line, so the shape body must remain
+  // dark and readable even when a jacket is loaded.
+  if (lP.length > 1) {
     ctx.fillStyle = '#121212';
     ctx.beginPath();
     lP.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
@@ -4152,9 +4226,19 @@ function loadKeyBindings() {
 // ============================================================
 function rszPlayFSCanvas() {
   const cv = $('playFSCv'); if (!cv) return;
+  const fs = $('playFS'); if (!fs) return;
   const dpr = devicePixelRatio;
-  const w = window.innerWidth, h = window.innerHeight;
-  cv.width = w * dpr; cv.height = h * dpr;
+  // Phase 7-3 (revisited): use the overlay container's actual bounding box
+  // rather than window.innerWidth/Height. During orientation changes and
+  // fullscreen transitions, window.innerWidth lags behind the visible
+  // viewport (especially on Samsung Internet), producing canvases that are
+  // too narrow or off-screen. The overlay is `position:fixed; width:100%;
+  // height:100%` so its rect IS the visible play surface, post-transition.
+  // If the overlay isn't actually displayed yet, bail — caller will retry.
+  const r = fs.getBoundingClientRect();
+  if (r.width < 1 || r.height < 1) return;
+  const w = r.width, h = r.height;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
   cv.style.width = w + 'px'; cv.style.height = h + 'px';
 }
 
@@ -4170,10 +4254,10 @@ function drawPlayScreen(cv, curMs) {
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cw, ch_);
   const asp = 16 / 9; let gw, gh, gx, gy;
   if (cw / ch_ > asp) { gh = ch_; gw = gh * asp; gx = (cw - gw) / 2; gy = 0; } else { gw = cw; gh = gw / asp; gx = 0; gy = (ch_ - gh) / 2; }
-  // Phase 7-3: dark game-area fill is suppressed when a jacket backdrop is
-  // loaded — drawGameFrame's drawJacketBackground call needs a transparent
-  // canvas underneath to render onto.
-  if (!_jacketImg) { ctx.fillStyle = '#050508'; ctx.fillRect(gx, gy, gw, gh); }
+  // Phase 7-3 (revisited): unconditional dark fill restored. The jacket is
+  // now drawn only in the upper letterbox region (above the judgment line),
+  // so the rest of the game area still wants its dark base.
+  ctx.fillStyle = '#050508'; ctx.fillRect(gx, gy, gw, gh);
   ctx.save(); ctx.beginPath(); ctx.rect(gx, gy, gw, gh); ctx.clip();
   drawGameFrame(ctx, gx, gy, gw, gh, curMs, {
     hitEffects: playEffects, hitMap: playHitMap, missSet: playMissSet, showMissColor: true,
@@ -4246,8 +4330,8 @@ function drawPlayIdle() {
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cw, ch_);
   const asp = 16 / 9; let gw, gh, gx, gy;
   if (cw / ch_ > asp) { gh = ch_; gw = gh * asp; gx = (cw - gw) / 2; gy = 0; } else { gw = cw; gh = gw / asp; gx = 0; gy = (ch_ - gh) / 2; }
-  // Phase 7-3: same as drawPlayScreen — let the jacket backdrop show through.
-  if (!_jacketImg) { ctx.fillStyle = '#050508'; ctx.fillRect(gx, gy, gw, gh); }
+  // Phase 7-3 (revisited): same as drawPlayScreen — unconditional dark fill.
+  ctx.fillStyle = '#050508'; ctx.fillRect(gx, gy, gw, gh);
   ctx.save(); ctx.beginPath(); ctx.rect(gx, gy, gw, gh); ctx.clip();
   // Show static frame at current shared position — no live hits/misses driven from this draw,
   // but still show HUD so the user sees title/difficulty/score-so-far at all times on Play.
@@ -4639,7 +4723,10 @@ function playLoop(ts) {
   // visible — keep them in sync so the user sees real progress. Throttle by
   // skipping the DOM write when the value didn't actually change at slider
   // resolution (1/1000), which is the common case at 60 fps.
-  if (!playFullscreen && totalMs > 0) {
+  // Phase 7-3 (revisited): suppress these writes while the user is actively
+  // dragging the seek thumb (_seekDragMs is non-null). Otherwise the playLoop
+  // would fight the user's pointer for the slider value.
+  if (!playFullscreen && totalMs > 0 && _seekDragMs == null) {
     const seek = $('playSeek');
     if (seek) {
       const newVal = Math.max(0, Math.min(1000, Math.round((curMs / totalMs) * 1000)));
@@ -4676,6 +4763,12 @@ function startPlay(fromBeginning, autoplay) {
   playOffMs = offMs;
   playActive = true;
   playStartedFromBeginning = !!fromBeginning;
+  // Phase 7-3 (revisited): freeze the Autoplay toggle during the session.
+  // Allowing mid-session changes meant the same run could see SYNC-only
+  // (autoplay) frames mixed with PERFECT/GOOD (manual) frames, which made
+  // the score readings nonsense. Disabled visually + click guarded.
+  const autoChk = $('playAutoChk');
+  if (autoChk) { autoChk.disabled = true; autoChk.parentElement.style.opacity = '0.5'; }
   // Restart → fullscreen immediately. Play/Pause → start windowed; user can
   // promote to fullscreen later. Tracked separately so an orientation-driven
   // exit from fullscreen doesn't end the session for the windowed entry path.
@@ -4724,6 +4817,17 @@ function startPlay(fromBeginning, autoplay) {
 
 function stopPlay() {
   if (!playActive) return;
+  // Phase 7-3 (revisited): snapshot the current play position into sharedMs
+  // BEFORE clearing playActive. Next ▶ press calls startPlay(false), which
+  // reads sharedMs, so the user resumes from "where they stopped" — not from
+  // wherever sharedMs happened to be when they originally pressed ▶ (which
+  // would otherwise be stale = the start of this session).
+  // Restart-launched sessions also benefit: stopping mid-restart returns the
+  // user to a coherent seek position rather than -LEAD_IN_MS.
+  const curMs = playOffMs + (performance.now() - playT0) * playbackRate;
+  if (isFinite(curMs) && curMs > 0) {
+    sharedMs = Math.min(curMs, totalMs || curMs);
+  }
   playActive = false;
   cancelAnimationFrame(playRAF); playRAF = null;
   stopAud(); playKeyHeld.clear(); playHoldState = {};
@@ -4738,6 +4842,10 @@ function stopPlay() {
     playFullscreen = false;
   }
   playStartedFromBeginning = false;
+  // Phase 7-3 (revisited): re-enable the Autoplay toggle now that the session
+  // is over. Mirrors the disable in startPlay.
+  const autoChk = $('playAutoChk');
+  if (autoChk) { autoChk.disabled = false; autoChk.parentElement.style.opacity = ''; }
 
   $('playBtn').textContent = '▶';
 
@@ -4754,6 +4862,15 @@ function stopPlay() {
     const acc = total > 0 ? ((sC + pC * 0.9 + gC * 0.5) / total * 100) : 0;
     toast(`SYNC:${sC} PERFECT:${pC} GOOD:${gC} MISS:${playMissSet.size} | ${acc.toFixed(1)}% | Combo:${playMaxCombo}`);
   }
+
+  // Phase 7-3 (revisited): keep the playbar in sync with the snapshotted
+  // sharedMs so the slider/time display visually match where ▶ would resume.
+  if (totalMs > 0) {
+    const seek = $('playSeek');
+    if (seek) seek.value = Math.max(0, Math.min(1000, Math.round((sharedMs / totalMs) * 1000)));
+  }
+  const tm = $('playTime');
+  if (tm) tm.textContent = fmtMs(Math.max(0, sharedMs));
 
   requestAnimationFrame(() => { if (activeTab === 'play') { rszActiveCanvas(); drawPlayIdle(); } });
 }
@@ -4992,7 +5109,7 @@ Object.assign(window, {
   // Tempo / time signature (meta tab)
   addTempo, editTempo, delTempo, addTimeSig, editTS, delTS,
   // Play mode (v21: unified from former Preview + Play)
-  playToggle, playRestart, playSeekTo, togglePlayFullscreen,
+  playToggle, playRestart, playSeekTo, playSeekPreview, togglePlayFullscreen,
   stopPlay, resetKeyBindings,
   // File / import / export
   doExport, doImport, showMod, closeMod, fmSave, fmSaveAs, fmLoad, fmDelete,

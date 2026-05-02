@@ -290,7 +290,7 @@ canvas{display:block;position:absolute;top:0;left:0}
     <div class="pvbar" id="playBar">
       <button class="bp" id="playBtn" onclick="playToggle()">▶</button>
       <button class="nsm" onclick="playRestart()" title="처음부터 (전체화면)">↺</button>
-      <input type="range" id="playSeek" min="0" max="1000" value="0" oninput="playSeekTo(+this.value)" style="flex:1;height:3px">
+      <input type="range" id="playSeek" min="0" max="1000" value="0" oninput="playSeekPreview(+this.value)" onchange="playSeekTo(+this.value)" style="flex:1;height:3px">
       <span class="bi" id="playTime">0:00</span>
       <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--tx2);cursor:pointer;padding:0 2px" title="Autoplay: 자동 SYNC 판정">
         <input type="checkbox" id="playAutoChk" style="margin:0;width:12px;height:12px">Auto
