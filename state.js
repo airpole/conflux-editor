@@ -14,7 +14,15 @@ export const D = {
   schemaVersion: 2,
   metadata: {
     title: "Untitled", subtitle: "", artist: "airpole", charter: "airpole",
-    audioFile: "", offset: 0, difficulty: "Trace", level: 0
+    audioFile: "", offset: 0, difficulty: "Trace", level: 0,
+    // Phase 7-2: Display-only offset added to measure numbers in UI labels.
+    // Internal measure indexing is unchanged (tick 0 = internal measure 1);
+    // this only shifts what the user sees on the canvas, in the tempo/TS
+    // lists, and in the measure-input fields. Default 0 keeps legacy behavior.
+    // Example: a chart whose first note sits at internal measure 4 can set
+    // measureLabelOffset = -3 so the same tick reads as "1" — and the bars
+    // before it read 0, -1, -2 (helpful for spotting 8/16-bar loops).
+    measureLabelOffset: 0
   },
   tempo: [{tick: 0, bpm: 120}],
   timeSignatures: [{tick: 0, numerator: 4, denominator: 4}],

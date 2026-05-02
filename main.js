@@ -66,6 +66,12 @@ function loadChartData(d) {
   if (d.metadata) {
     D.metadata = {...D.metadata, ...d.metadata};
     if (d.metadata.chart && !d.metadata.charter) D.metadata.charter = d.metadata.chart;
+    // Phase 7-2: explicitly normalize measureLabelOffset so loading a chart
+    // that lacks the field doesn't inherit the previous chart's value through
+    // the spread merge above. Older saves (pre-Phase 7-2) won't have it, and
+    // we want them to read as 0 rather than whatever was loaded before.
+    D.metadata.measureLabelOffset =
+      (typeof d.metadata.measureLabelOffset === 'number') ? d.metadata.measureLabelOffset : 0;
   }
   if (d.tempo) D.tempo = d.tempo;
   if (!D.tempo || D.tempo.length === 0) D.tempo = [{tick: 0, bpm: 120}];
@@ -844,9 +850,14 @@ function drawN() {
     ctx.lineWidth = gl.isMeasure ? 1.5 : 0.7;
     ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + gw, y); ctx.stroke();
     if (gl.isMeasure) {
-      ctx.fillStyle = gl.measureNum <= 0 ? '#a855f7' : '#888';
+      // Phase 7-2: pre-roll vs. main-chart styling is now driven by gl.isPreRoll
+      // (whether the gridline lives at tick < 0). The displayed measure number
+      // can land below zero either because the gridline is genuinely pre-roll
+      // OR because the user set a negative measureLabelOffset — these two
+      // cases need different visual treatment, hence the separate flag.
+      ctx.fillStyle = gl.isPreRoll ? '#a855f7' : '#888';
       ctx.font = 'bold 10px sans-serif';
-      ctx.fillText(gl.measureNum <= 0 ? `m${gl.measureNum}` : gl.measureNum, padL - (gl.measureNum <= 0 ? 22 : 16), y + 4);
+      ctx.fillText(gl.isPreRoll ? `m${gl.measureNum}` : gl.measureNum, padL - (gl.isPreRoll ? 22 : 16), y + 4);
     }
     else { ctx.fillStyle = '#444'; ctx.font = '8px sans-serif'; ctx.fillText(gl.beatInMeasure, padL - 10, y + 3); }
   }
@@ -1866,6 +1877,37 @@ function doShapePaste(flip) {
   toast(`${flip ? 'Flip-' : ''}Pasted ${newEvts.length} shape(s)`);
   drawS();
 }
+
+/**
+ * Mirror selected shape events in place around the center axis.
+ * For each selected non-init event: targetPos → 64 - targetPos (mirror around
+ * internal pos 32 = external center 0), and isRight → !isRight (swap chain
+ * identity Blue ↔ Red). Init events (easing === null) are silently kept —
+ * the Left/Right anchor rows are not user-flippable.
+ *
+ * Mirrors doFlipSelected for notes — a chart-position-preserving in-place flip
+ * that does NOT touch the clipboard. Phase 4: this is now the ONLY behavior of
+ * the Flip button on the Shape toolbar; flip-paste lives on long-press of the
+ * Paste button (consistent with the Notes tab).
+ */
+function doShapeFlipSelected() {
+  if (selectedShapeEvts.size === 0) { toast('No shapes selected'); return; }
+  let count = 0;
+  for (const e of selectedShapeEvts) {
+    if (e.easing === null) continue; // Init events untouched
+    e.targetPos = 64 - e.targetPos;
+    e.isRight = !e.isRight;
+    count++;
+  }
+  if (count === 0) { toast('Nothing to flip (Init only)'); return; }
+  // Both sides need normalization: an event may have moved Blue→Red or vice
+  // versa, so each chain's content has changed. normalizeShapeChain calls
+  // invalidateShapeCache internally.
+  normalizeShapeChain(false);
+  normalizeShapeChain(true);
+  saveHist('s'); drawS();
+  toast(`${count}개 shape 뒤집기`);
+}
 function sZ(d) { edZm = Math.max(0.25, Math.min(8, edZm * (d > 0 ? 1.35 : 1 / 1.35))); drawN(); drawS(); }
 
 function sMet() {
@@ -1939,9 +1981,11 @@ function drawS() {
     ctx.lineWidth = gl.isMeasure ? 1 : 0.3;
     ctx.beginPath(); ctx.moveTo(gx, y); ctx.lineTo(gx + gw, y); ctx.stroke();
     if (gl.isMeasure) {
-      ctx.fillStyle = gl.measureNum <= 0 ? '#a855f7' : '#666';
+      // Phase 7-2: see drawN counterpart — isPreRoll separates "below tick 0"
+      // from "displayed measure value happens to be ≤ 0 due to user offset".
+      ctx.fillStyle = gl.isPreRoll ? '#a855f7' : '#666';
       ctx.font = 'bold 8px sans-serif';
-      ctx.fillText(gl.measureNum <= 0 ? `m${gl.measureNum}` : gl.measureNum, gx + 3, y - 3);
+      ctx.fillText(gl.isPreRoll ? `m${gl.measureNum}` : gl.measureNum, gx + 3, y - 3);
     } else {
       ctx.fillStyle = '#444'; ctx.font = '7px sans-serif';
       ctx.fillText(gl.beatInMeasure, gx + 3, y - 2);
@@ -2890,7 +2934,9 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     const wdd = buildGFTicks(drawSt, wet);
     if (wdd.length < 2) continue;
     // Phase 6 D2: dim wide LN body when missed or mid-released.
-    const wAlpha = (wIsMiss || wIsMidRelease) ? 0.3 : 1;
+    // 0.5: visible enough to read the chart, dim enough to signal "no longer
+    // judgable" so a re-press won't be expected to register.
+    const wAlpha = (wIsMiss || wIsMidRelease) ? 0.5 : 1;
     if (wAlpha !== 1) ctx.globalAlpha = wAlpha;
     ctx.fillStyle = WIDE_BODY; ctx.beginPath();
     for (let s = 0; s < wdd.length; s++) {
@@ -3028,8 +3074,10 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     let alpha = 1;
     if (isHit && !n.duration) { alpha = Math.max(0, 1 - (curMs - nMs) / 100); } // Hit tap notes fade over 100ms
     if (isMissed && !n.duration) { alpha = 1; } // Miss tap notes keep scrolling (visible)
-    // Phase 6 D2: missed or mid-released LN → dim to 0.3 (head + body + tail).
-    if ((isMissed || isMidRelease) && n.duration > 0) { alpha = Math.min(alpha, 0.3); }
+    // Phase 6 D2: missed or mid-released LN → dim to 0.5 (head + body + tail).
+    // Brighter than 0.3 (previous) to give clearer "no longer judgable" feedback
+    // while keeping it visually distinct from active notes.
+    if ((isMissed || isMidRelease) && n.duration > 0) { alpha = Math.min(alpha, 0.5); }
     _gfState.set(n, { ov, li, headCol, bodyCol, isHit, isMissed, isMidRelease, alpha, nMs, neMs });
   }
 
@@ -3409,39 +3457,40 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
 // ============================================================
 //  AUDIO ENGINE
 // ============================================================
-// Modernized for mobile reliability (Galaxy S24+ Chromium):
-//  - await actx.resume() so decodeAudioData never runs on a suspended context
-//    (legacy callback form silent-fails there on some Chromium builds).
-//  - Promise-based decodeAudioData + try/catch — failures now surface as toast.
-//  - f.arrayBuffer() instead of FileReader (no onerror gap, simpler control flow).
-//  - inp.value reset in finally so re-picking the same file always re-fires onchange,
-//    even if a previous attempt failed.
-async function loadAud(inp) {
+function loadAud(inp) {
   const f = inp.files[0]; if (!f) return;
-  $('audS').textContent = `Loading ${f.name}…`;
-  try {
-    initAud();
-    if (actx.state === 'suspended') {
-      try { await actx.resume(); } catch (_) {}
+  initAud();
+  const r = new FileReader();
+  r.onload = async () => {
+    try {
+      // 모바일 브라우저(특히 Samsung Internet)에서 신규 AudioContext가
+      // 'suspended' 상태일 때 decodeAudioData가 silently fail하는 케이스가
+      // 있다. initAud()의 resume()는 await되지 않으므로 FileReader가 빨리
+      // 끝나면 decode 시점에 아직 suspended일 수 있다. 여기서 명시적 대기.
+      if (actx.state === 'suspended') {
+        try { await actx.resume(); } catch (e) {}
+      }
+      // Promise 형식: 콜백형은 에러 콜백이 없어 실패가 silent였다.
+      const b = await actx.decodeAudioData(r.result);
+      abuf = b; audioMs = b.duration * 1000; updateTotalMs();
+      $('audS').textContent = `${f.name} (${b.duration.toFixed(1)}s)`;
+      const ch0 = b.getChannelData(0);
+      const ch1 = b.numberOfChannels > 1 ? b.getChannelData(1) : ch0;
+      const factor = Math.max(1, Math.floor(b.sampleRate / 8000));
+      const len = Math.floor(ch0.length / factor);
+      waveData = new Float32Array(len); waveSR = b.sampleRate / factor;
+      for (let i = 0; i < len; i++) { const si = i * factor; let peak = 0; for (let j = 0; j < factor && si + j < ch0.length; j++) peak = Math.max(peak, Math.abs((ch0[si + j] + ch1[si + j]) * 0.5)); waveData[i] = peak; }
+      drawN();
+      toast('Loaded: ' + f.name);
+    } catch (err) {
+      toast('Audio load failed: ' + (err && err.message ? err.message : err));
     }
-    const buf = await f.arrayBuffer();
-    const b = await actx.decodeAudioData(buf);
-    abuf = b; audioMs = b.duration * 1000; updateTotalMs();
-    $('audS').textContent = `${f.name} (${b.duration.toFixed(1)}s)`;
-    const ch0 = b.getChannelData(0);
-    const ch1 = b.numberOfChannels > 1 ? b.getChannelData(1) : ch0;
-    const factor = Math.max(1, Math.floor(b.sampleRate / 8000));
-    const len = Math.floor(ch0.length / factor);
-    waveData = new Float32Array(len); waveSR = b.sampleRate / factor;
-    for (let i = 0; i < len; i++) { const si = i * factor; let peak = 0; for (let j = 0; j < factor && si + j < ch0.length; j++) peak = Math.max(peak, Math.abs((ch0[si + j] + ch1[si + j]) * 0.5)); waveData[i] = peak; }
-    drawN();
-    toast('Audio loaded');
-  } catch (e) {
-    $('audS').textContent = 'No audio (load failed)';
-    toast('Audio load failed: ' + (e && e.message ? e.message : e));
-  } finally {
-    inp.value = '';
-  }
+  };
+  r.onerror = () => toast('File read failed');
+  r.readAsArrayBuffer(f);
+  // 같은 파일을 재선택해도 change가 다시 발화하도록 리셋. 첫 시도가
+  // 실패했을 때 사용자가 동일 파일로 재시도하는 흐름을 막지 않게 함.
+  inp.value = '';
 }
 
 let _audStartCtxTime = 0, _audStartSec = 0;
@@ -3492,24 +3541,21 @@ function doExport() {
   a.click(); URL.revokeObjectURL(u);
 }
 
-// Modernized: f.text() instead of FileReader (avoids the race where mobile
-// browsers detach the File when inp.value clears mid-read), inp.value reset
-// in finally so it happens after the read settles.
-async function doImport(inp) {
+function doImport(inp) {
   const f = inp.files[0]; if (!f) return;
-  try {
-    const text = await f.text();
-    const d = JSON.parse(text);
-    loadChartData(d);
-    currentFileName = f.name.replace(/\.json$/i, '');
-    compBPM(); syncMeta(); drawN(); drawS(); saveHist('n'); saveHist('s'); saveHist('m');
-    closeMod('fileMod');
-    toast('Imported: ' + f.name);
-  } catch (e) {
-    toast('Error: ' + (e && e.message ? e.message : e));
-  } finally {
-    inp.value = '';
-  }
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      loadChartData(d);
+      currentFileName = f.name.replace(/\.json$/i, '');
+      compBPM(); syncMeta(); drawN(); drawS(); saveHist('n'); saveHist('s'); saveHist('m');
+      closeMod('fileMod');
+      toast('Imported: ' + f.name);
+    } catch (e) { toast('Error: ' + e.message); }
+  };
+  r.readAsText(f);
+  inp.value = '';
 }
 
 function syncMeta() {
@@ -3521,6 +3567,9 @@ function syncMeta() {
   $('mLevel').value = D.metadata.level || 0;
   $('mOff').value = D.metadata.offset || 0;
   $('syncOff').value = D.metadata.offset || 0;
+  // Phase 7-2: keep the measure-label offset input mirrored on chart load.
+  const moInput = $('mMeasureOff');
+  if (moInput) moInput.value = D.metadata.measureLabelOffset || 0;
   renderTempoList(); renderTSList(); renderTeList();
 }
 
@@ -4423,10 +4472,11 @@ document.addEventListener('keydown', (e) => {
     }
     if (key === 'f') {
       e.preventDefault();
-      // Phase 4: Ctrl+F in Notes → flip selected in place (matches Flip button).
-      // Shape tab keeps its existing flip-paste semantics for Ctrl+F.
+      // Phase 4 (revisited): Ctrl+F flips the selection in place across both
+      // tabs. Shape tab now matches Notes — flip-paste lives on long-press of
+      // the Paste button (sPasteBtn), not on this shortcut.
       if (activeTab === 'note') doFlipSelected();
-      else if (activeTab === 'shape') doShapePaste(true);
+      else if (activeTab === 'shape') doShapeFlipSelected();
       return;
     }
     if (key === 'a') {
@@ -4563,7 +4613,7 @@ Object.assign(window, {
   // Notes editing
   doCopy, doPaste, doFlipSelected, nZ, toggleFollow, toggleGP, closeGP,
   // Shapes editing
-  doShapeCopy, doShapePaste, sZ, toggleSFollow, toggleMirror, cyclePosSnap,
+  doShapeCopy, doShapePaste, doShapeFlipSelected, sZ, toggleSFollow, toggleMirror, cyclePosSnap,
   // Grid pickers (referenced via template string `${cb}(${d})` in buildGP)
   pickNG, pickSG,
   // Playback — editor
@@ -4622,16 +4672,34 @@ window.addEventListener('DOMContentLoaded', () => {
   const thkInput = $('mThk');
   if (thkInput) thkInput.addEventListener('change', e => { nThk = +e.target.value; });
 
+  // Phase 7-2: measure label offset. Display-only — shifts what users see
+  // in the canvas grid labels and the tempo/TS lists. Internal ticks and
+  // measure indexing are unchanged. Renders the active tab and refreshes the
+  // tempo/TS lists so the new labels appear immediately. Auto-save is
+  // scheduled because the value lives in D.metadata and persists per chart.
+  const mOffInput = $('mMeasureOff');
+  if (mOffInput) mOffInput.addEventListener('change', e => {
+    D.metadata.measureLabelOffset = +e.target.value || 0;
+    renderTempoList(); renderTSList();
+    if (activeTab === 'note') drawN();
+    else if (activeTab === 'shape') drawS();
+    scheduleAutoSave();
+  });
+
   // v21: autoplay toggle in the Play tab control bar
   const autoChk = $('playAutoChk');
   if (autoChk) autoChk.addEventListener('change', e => { playAutoplay = e.target.checked; });
 
   // Phase 4: Long-press on Paste button → flip-paste (500ms).
   // Short tap → normal paste. Finger drift >10px cancels (scroll protection).
-  // We replace the inline onclick binding with pointer event handling so the
-  // short-tap and long-press paths are fully exclusive (never both fire).
-  (function initPasteLongPress() {
-    const btn = $('nPasteBtn');
+  // Pointer event handling makes the short-tap and long-press paths fully
+  // exclusive (never both fire).
+  //
+  // Phase 4 (revisited): same logic now wired to the Shape tab's Paste button
+  // too, so the Flip button can be reserved for in-place flip of the selection
+  // (consistent with the Notes tab).
+  function initLongPressPaste(btnId, shortAction, longAction) {
+    const btn = $(btnId);
     if (!btn) return;
     btn.removeAttribute('onclick');
     btn.onclick = null;
@@ -4651,7 +4719,7 @@ window.addEventListener('DOMContentLoaded', () => {
       lpTimer = setTimeout(() => {
         lpTimer = null;
         btn.classList.remove('lp');
-        doPaste(true); // flip-paste on 500ms hold
+        longAction(); // flip-paste on 500ms hold
       }, 500);
     });
 
@@ -4667,13 +4735,15 @@ window.addEventListener('DOMContentLoaded', () => {
         // Released before 500ms → short tap = normal paste
         clearTimeout(lpTimer); lpTimer = null;
         btn.classList.remove('lp');
-        doPaste(false);
+        shortAction();
       }
       // If lpTimer is null here, either long-press already fired or we canceled.
     });
 
     btn.addEventListener('pointercancel', clearLP);
-  })();
+  }
+  initLongPressPaste('nPasteBtn', () => doPaste(false),       () => doPaste(true));
+  initLongPressPaste('sPasteBtn', () => doShapePaste(false),  () => doShapePaste(true));
   
   compBPM(); updateTotalMs(); saveHist('n'); saveHist('s'); saveHist('m');
   buildGP('ngp', nGD, 'pickNG'); buildGP('sgp', sGD, 'pickSG');

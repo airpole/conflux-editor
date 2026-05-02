@@ -178,8 +178,8 @@ canvas{display:block;position:absolute;top:0;left:0}
       </div>
       <div class="trow">
         <button class="t" id="sCopyBtn" onclick="doShapeCopy()" style="border-color:var(--green)" title="Copy [Ctrl+C]">Copy</button>
-        <button class="t" id="sPasteBtn" onclick="doShapePaste(false)" style="border-color:var(--green)" title="Paste [Ctrl+V]">Paste</button>
-        <button class="t" id="sFlipPBtn" onclick="doShapePaste(true)" style="border-color:var(--orange)" title="Paste mirrored [Ctrl+F]">Flip</button>
+        <button class="t" id="sPasteBtn" style="border-color:var(--green)" title="Paste [Ctrl+V] / 길게 누르기: Flip-paste">Paste</button>
+        <button class="t" id="sFlipPBtn" onclick="doShapeFlipSelected()" style="border-color:var(--orange)" title="선택 shape 좌우 반전 [Ctrl+F]">Flip</button>
         <button class="t ease-on" id="easeBtn_Arc" onclick="pickEase('Arc')" style="border-color:#a855f7;color:#a855f7" title="Arc easing [1]">Arc</button>
         <button class="t" id="easeBtn_Out-Sine" onclick="pickEase('Out-Sine')" style="border-color:#a855f7;color:#a855f7" title="Out-Sine easing [2]">Out</button>
         <button class="t" id="easeBtn_In-Sine" onclick="pickEase('In-Sine')" style="border-color:#a855f7;color:#a855f7" title="In-Sine easing [3]">In</button>
@@ -246,6 +246,10 @@ canvas{display:block;position:absolute;top:0;left:0}
       <button class="nsm" onclick="setGlobalPreset(0)">Wired (0)</button>
       <button class="nsm" onclick="setGlobalPreset(100)">BT (100)</button>
     </div>
+    <div class="mr2" style="margin-top:8px">
+      <div><label>Measure Label Offset</label><input id="mMeasureOff" type="number" value="0" step="1" title="첫 노트가 0으로 표시되도록 마디 번호를 시프트. 예: 첫 노트가 m4면 -3 입력. 내부 데이터는 변경 없음."></div>
+    </div>
+    <div style="font-size:8px;color:var(--tx2);margin-top:2px">표시만 시프트 (내부 tick/측정 변경 없음). 첫 노트를 0으로 두면 8/16마디 루프가 잘 보임.</div>
     <h3>Sound</h3>
     <div class="mr2">
       <div><label>Hitsound Volume</label><input id="mHitVol" type="range" min="0" max="100" value="100" style="max-width:180px"><span id="hitVolLbl" style="font-size:9px;color:var(--tx2);margin-left:4px">100%</span></div>

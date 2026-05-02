@@ -81,6 +81,10 @@ export function getMinTick() {
 
 /** Convert tick to measure.beat.subdivision notation string */
 export function tickToMeasure(tick) {
+  // Phase 7-2: display-only offset. Added to the internal measure number on
+  // every output path; measureToTick subtracts it on input. Both sides being
+  // pure shifts keeps the tick⇄string round-trip identity-preserving.
+  const labelOff = (D.metadata && D.metadata.measureLabelOffset) || 0;
   let sorted = getSortedTS();
   if (!sorted.length) sorted = [{tick:0, numerator:4, denominator:4}];
   // Handle negative ticks (measure 0 and below)
@@ -92,7 +96,7 @@ export function tickToMeasure(tick) {
     const relTick = tick - measureStart;
     const beat = Math.floor(relTick / TPB) + 1;
     const subTick = relTick % TPB;
-    const measure = 1 - measureBack;
+    const measure = (1 - measureBack) + labelOff;
     if (subTick === 0 && beat === 1) return `${measure}`;
     if (subTick === 0) return `${measure}.${beat}`;
     const sub = Math.round(subTick / (TPB / 16));
@@ -112,7 +116,7 @@ export function tickToMeasure(tick) {
     const remainder = relTick - measureInEpoch * tpm;
     const beat = Math.floor(remainder / TPB) + 1;
     const subTick = remainder % TPB;
-    const measure = globalMeasure + measureInEpoch;
+    const measure = (globalMeasure + measureInEpoch) + labelOff;
     if (subTick === 0 && beat === 1) return `${measure}`;
     if (subTick === 0) return `${measure}.${beat}`;
     // Express sub-beat as subdivision
@@ -135,6 +139,11 @@ export function measureToTick(str) {
   if (parts.some(isNaN)) return null;
   let measure = parts[0] || (neg ? 0 : 1);
   if (neg) measure = -measure;
+  // Phase 7-2: input is in DISPLAYED measure units (what the user sees in the
+  // tempo/TS list and the canvas grid). Convert back to internal by undoing
+  // the offset that tickToMeasure added.
+  const labelOff = (D.metadata && D.metadata.measureLabelOffset) || 0;
+  measure = measure - labelOff;
   const beat = parts.length >= 2 ? parts[1] : 1;
   const sub = parts.length >= 3 ? parts[2] : 0;
 
@@ -170,6 +179,13 @@ export function measureToTick(str) {
 }
 
 export function getGridLines(startTk, endTk) {
+  // Phase 7-2: offset is added to measureNum on each line entry. drawN/drawS
+  // read measureNum directly to label measures, so they pick up the shift
+  // automatically. The "below tick 0" styling (purple, "m" prefix) was
+  // previously inferred from `measureNum <= 0`; that conflates display value
+  // with location, so we now expose `isPreRoll` (tick < 0) and let callers
+  // make the distinction explicitly.
+  const labelOff = (D.metadata && D.metadata.measureLabelOffset) || 0;
   let sorted = getSortedTS();
   if (!sorted.length) sorted = [{tick:0, numerator:4, denominator:4}];
   const lines = [];
@@ -187,8 +203,8 @@ export function getGridLines(startTk, endTk) {
       const measureStart = -measureBack * tpm;
       const relTick = tk - measureStart;
       const beatInMeasure = Math.floor(relTick / TPB) % bpm;
-      const measure = 1 - measureBack;
-      lines.push({tick: tk, isMeasure: beatInMeasure === 0, measureNum: measure, beatInMeasure: beatInMeasure + 1});
+      const measure = (1 - measureBack) + labelOff;
+      lines.push({tick: tk, isMeasure: beatInMeasure === 0, measureNum: measure, beatInMeasure: beatInMeasure + 1, isPreRoll: true});
     }
   }
   let globalMeasure = 1;
@@ -209,7 +225,8 @@ export function getGridLines(startTk, endTk) {
       const beatInEpoch = Math.floor(off / TPB);
       const measureInEpoch = Math.floor(beatInEpoch / bpm);
       const beatInMeasure = beatInEpoch % bpm;
-      lines.push({tick: tk, isMeasure: beatInMeasure === 0, measureNum: globalMeasure + measureInEpoch, beatInMeasure: beatInMeasure + 1});
+      const measure = (globalMeasure + measureInEpoch) + labelOff;
+      lines.push({tick: tk, isMeasure: beatInMeasure === 0, measureNum: measure, beatInMeasure: beatInMeasure + 1, isPreRoll: false});
     }
     if (epochEnd !== Infinity) globalMeasure += Math.floor((epochEnd - epochStart) / tpm);
   }
