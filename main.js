@@ -72,6 +72,20 @@ function loadChartData(d) {
     // we want them to read as 0 rather than whatever was loaded before.
     D.metadata.measureLabelOffset =
       (typeof d.metadata.measureLabelOffset === 'number') ? d.metadata.measureLabelOffset : 0;
+    // Phase 7-3: same defensive normalization for jacket fields. An empty
+    // string clears the cached blur backdrop so the previous chart's image
+    // doesn't bleed into this one. _hydrateJacketFromMeta is called below
+    // (after the rest of the data tree is set up) to actually decode and
+    // pre-render the new jacket, if any.
+    D.metadata.jacketImage =
+      (typeof d.metadata.jacketImage === 'string') ? d.metadata.jacketImage : '';
+    D.metadata.jacketBrightness =
+      (typeof d.metadata.jacketBrightness === 'number') ? d.metadata.jacketBrightness : 50;
+  } else {
+    // No incoming metadata at all — still need to clear jacket state so a
+    // previous chart's image doesn't persist.
+    D.metadata.jacketImage = '';
+    D.metadata.jacketBrightness = 50;
   }
   if (d.tempo) D.tempo = d.tempo;
   if (!D.tempo || D.tempo.length === 0) D.tempo = [{tick: 0, bpm: 120}];
@@ -111,6 +125,11 @@ function loadChartData(d) {
   invalidateNoteOverlaps();
   invalidateTSCache();
   compBPM(); updateTotalMs();
+  // Phase 7-3: hydrate jacket image after data tree is settled. If the meta
+  // didn't include a jacket, this clears any pending Image / blur cache so
+  // the previously-loaded chart's jacket doesn't render against the new
+  // chart's notes.
+  _hydrateJacketFromMeta();
 }
 
 
@@ -160,8 +179,170 @@ function updateTotalMs() {
 // Audio engine
 let actx = null, abuf = null, asrc = null, aOff = 0;
 let waveData = null, waveSR = 44100;
-let globalOffset = 0;            // System latency compensation (ms)
+// Phase 7-3: globalOffset removed. The Wired/BT presets and the manual input
+// in Meta have both gone away — chart offset (D.metadata.offset) is the only
+// timing knob that remains for sync between audio and chart.
 let isMetronomeOn = false;
+
+// ============================================================
+//  JACKET BACKGROUND (Phase 7-3)
+// ============================================================
+// A square jacket image, optionally provided via Meta tab, renders behind
+// the play canvas as a blurred backdrop with the original square overlaid
+// in the upper "above-judgment-line" space.
+//
+// Performance: ctx.filter='blur(...)' is expensive enough that re-running it
+// every frame would noticeably hit framerate on mobile. Instead we run blur
+// once when the jacket loads (or when window dimensions change enough that
+// the cached backdrop becomes too small) and stash the result in an offscreen
+// canvas. The per-frame cost is then two drawImage() calls — cheap.
+let _jacketImg = null;          // HTMLImageElement (decoded jacket)
+let _jacketBlurCanvas = null;   // pre-rendered blur backdrop
+let _jacketBlurW = 0, _jacketBlurH = 0;
+
+/** Build (or rebuild) the blur backdrop sized to cover targetW × targetH. */
+function _rebuildJacketBlur(targetW, targetH) {
+  if (!_jacketImg || !_jacketImg.complete || _jacketImg.naturalWidth === 0) return;
+  // Cap backdrop resolution — high DPR + 4K screens otherwise produce huge
+  // canvases that slow blur even though we only do it once.
+  const MAX_DIM = 1280;
+  const scale = Math.min(1, MAX_DIM / Math.max(targetW, targetH));
+  const cw = Math.max(8, Math.round(targetW * scale));
+  const ch = Math.max(8, Math.round(targetH * scale));
+  if (!_jacketBlurCanvas) _jacketBlurCanvas = document.createElement('canvas');
+  _jacketBlurCanvas.width = cw;
+  _jacketBlurCanvas.height = ch;
+  _jacketBlurW = cw; _jacketBlurH = ch;
+  const ctx = _jacketBlurCanvas.getContext('2d');
+  // 'cover' fit so the blur fills the entire screen — no black borders showing
+  // through the soft edges. 40px blur is the visual sweet spot at 1280-class
+  // dimensions; small enough to be quick, big enough to fully obscure shapes.
+  const imgAR = _jacketImg.naturalWidth / _jacketImg.naturalHeight;
+  const tgtAR = cw / ch;
+  let dw, dh;
+  if (imgAR > tgtAR) { dh = ch; dw = ch * imgAR; }
+  else                { dw = cw; dh = cw / imgAR; }
+  const dx = (cw - dw) / 2, dy = (ch - dh) / 2;
+  ctx.clearRect(0, 0, cw, ch);
+  ctx.filter = 'blur(40px)';
+  ctx.drawImage(_jacketImg, dx, dy, dw, dh);
+  ctx.filter = 'none';
+}
+
+/**
+ * Load D.metadata.jacketImage (data URL) into the offscreen Image and rebuild
+ * the blur backdrop. Called on chart load and after a fresh upload. Resolves
+ * silently if no jacket is set; failures clear any stale cache.
+ */
+function _hydrateJacketFromMeta() {
+  const src = D.metadata && D.metadata.jacketImage;
+  if (!src) {
+    _jacketImg = null; _jacketBlurCanvas = null;
+    _jacketBlurW = 0; _jacketBlurH = 0;
+    return;
+  }
+  const img = new Image();
+  img.onload = () => {
+    _jacketImg = img;
+    // Pick a starting backdrop size from window dimensions; rebuild later if
+    // the actual draw target needs different proportions.
+    _rebuildJacketBlur(window.innerWidth, window.innerHeight);
+    if (activeTab === 'play' && !playActive) drawPlayIdle();
+  };
+  img.onerror = () => {
+    _jacketImg = null; _jacketBlurCanvas = null;
+    toast('Jacket image failed to decode');
+  };
+  img.src = src;
+}
+
+/** Read a file input's first File, store as data URL in metadata, hydrate. */
+function loadJacket(inp) {
+  const f = inp.files && inp.files[0]; if (!f) return;
+  if (!/^image\//.test(f.type)) { toast('Image file required'); return; }
+  const r = new FileReader();
+  r.onload = () => {
+    D.metadata.jacketImage = r.result;
+    _hydrateJacketFromMeta();
+    _syncJacketUI();
+    scheduleAutoSave();
+    toast('Jacket loaded');
+  };
+  r.onerror = () => toast('Jacket read failed');
+  r.readAsDataURL(f);
+  inp.value = '';
+}
+
+/** Clear jacket from metadata + cache. */
+function clearJacket() {
+  D.metadata.jacketImage = '';
+  _jacketImg = null; _jacketBlurCanvas = null;
+  _syncJacketUI();
+  scheduleAutoSave();
+  if (activeTab === 'play' && !playActive) drawPlayIdle();
+}
+
+/** Reflect current jacket state in the Meta tab UI (preview thumb + label). */
+function _syncJacketUI() {
+  const prev = $('jacketPrev'), lbl = $('jacketLbl');
+  if (!prev || !lbl) return;
+  const src = D.metadata && D.metadata.jacketImage;
+  if (src) {
+    prev.src = src;
+    prev.style.display = '';
+    lbl.textContent = 'Tap to replace';
+  } else {
+    prev.removeAttribute('src');
+    prev.style.display = 'none';
+    lbl.textContent = 'Tap to load jacket (1:1 square image)';
+  }
+}
+
+/**
+ * Draw jacket backdrop into the game frame. `gx,gy,gw,gh` is the live game
+ * area (inside which shapes/notes will draw immediately after). The blur fills
+ * the entire game area; the original square sits centered horizontally and
+ * vertically in the "above judgment line" half (judgment line is at gy + gh*8/9
+ * in drawGameFrame, so the square's vertical center lands around gy + gh*4/9).
+ * Brightness scales the alpha of both the blur and the square uniformly.
+ *
+ * Z-order: this is called before the shape area fill in drawGameFrame, so
+ * everything that follows (shape body, line dividers, note bodies and heads,
+ * HUD) renders on top — the user explicitly wanted shapes and notes to
+ * always sit in front of the jacket.
+ */
+function drawJacketBackground(ctx, gx, gy, gw, gh) {
+  if (!_jacketImg) return;
+  const bright = (D.metadata.jacketBrightness != null) ? D.metadata.jacketBrightness : 50;
+  const alpha = Math.max(0, Math.min(1, bright / 100));
+  if (alpha <= 0) return;
+
+  // Rebuild blur if dimensions drifted enough (window resize, fullscreen toggle).
+  // We don't need pixel-perfect — just close to the draw target so we don't
+  // upscale a tiny cached image into a large canvas (visible softness)
+  // or downscale a huge cached image (wasted memory).
+  if (!_jacketBlurCanvas ||
+      Math.abs(_jacketBlurW - gw) > gw * 0.5 ||
+      Math.abs(_jacketBlurH - gh) > gh * 0.5) {
+    _rebuildJacketBlur(gw, gh);
+  }
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  // 1) Blur covers the whole game area
+  if (_jacketBlurCanvas) {
+    ctx.drawImage(_jacketBlurCanvas, gx, gy, gw, gh);
+  }
+  // 2) Crisp square overlaid in the upper half, above the judgment line
+  //    (jY = gy + gh*8/9). Size: take the smaller of (gw, gh*8/9) * 0.55 to
+  //    leave breathing room around the square.
+  const upperH = gh * (8 / 9);
+  const sq = Math.min(gw, upperH) * 0.55;
+  const sx = gx + (gw - sq) / 2;
+  const sy = gy + (upperH - sq) / 2;
+  ctx.drawImage(_jacketImg, sx, sy, sq, sq);
+  ctx.restore();
+}
 let musicGain = null, hitGain = null;
 
 // Editor playback state
@@ -193,6 +374,12 @@ rebuildCodeToChannel();
 let keyConfigMode = null; // null | 1-6
 
 let playActive = false, playFullscreen = false;
+// Phase 7-3: tracks how the current session was launched. fromBeginning=true
+// means the user pressed Restart (↺) — exiting fullscreen via native gesture
+// (Esc, swipe-down, rotate-to-portrait) ends the session. fromBeginning=false
+// means Play/Pause from a seek — exiting fullscreen returns to windowed
+// rendering on plCv without stopping playback.
+let playStartedFromBeginning = false;
 let playAutoplay = false;      // v21: autoplay toggle (auto-SYNC instead of key input)
 let playT0 = 0, playOffMs = 0;
 let playAudioStarted = false;  // Lead-in: has audio started yet?
@@ -421,7 +608,7 @@ function getPlayMs(w) {
   if (actx && asrc && abuf) {
     const audioSec = _audStartSec + (actx.currentTime - _audStartCtxTime) * playbackRate;
     const audioMs = audioSec * 1000;
-    return Math.max(0, audioMs - D.metadata.offset + globalOffset);
+    return Math.max(0, audioMs - D.metadata.offset);
   }
   return edMs0[w] + (performance.now() - edT0[w]) * playbackRate;
 }
@@ -442,11 +629,7 @@ function setOffsetHere() {
   toast('Offset set: ' + newOff + 'ms');
 }
 
-function setGlobalPreset(val) {
-  globalOffset = val;
-  $('mGlobalOff').value = val;
-  toast('Global offset: ' + val + 'ms');
-}
+// Phase 7-3: setGlobalPreset and the Wired/BT preset buttons removed.
 
 
 
@@ -566,15 +749,53 @@ function goFS() {
 }
 function onFullscreenChange() {
   setTimeout(() => {
-    // Handle play fullscreen exit via native gesture
-    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-      if (playFullscreen && playActive) stopPlay();
+    const stillFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    // Phase 7-3: differentiate by entry path.
+    //   - Restart-launched session → exiting fullscreen ends the session
+    //     (Esc, swipe-down on mobile, rotate to portrait, etc.).
+    //   - Play-from-seek windowed session that promoted to fullscreen later
+    //     → exiting fullscreen returns to windowed rendering, playback
+    //     continues. The user must hit ⏸ on the playbar to actually stop.
+    if (!stillFs && playFullscreen && playActive) {
+      if (playStartedFromBeginning) {
+        stopPlay();
+      } else {
+        // Demote to windowed: keep the session alive but render to plCv from
+        // here on. The fullscreen overlay div is hidden so the page chrome
+        // (playbar / seekbar) is visible again.
+        playFullscreen = false;
+        $('playFS').classList.remove('show');
+        rszActiveCanvas();
+      }
     }
     rszActiveCanvas(); redrawActiveTab();
   }, 150);
 }
 document.addEventListener('fullscreenchange', onFullscreenChange);
 document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+
+// Phase 7-3: Landscape rotation → auto-promote a windowed Play session to
+// fullscreen. Returning to portrait does NOT auto-exit (there's also
+// no auto-exit pathway — the user will see the windowed playbar reappear
+// once they hit the manual ⛶ exit, or rotate back if they prefer). We rely
+// on matchMedia rather than `screen.orientation` to keep behavior consistent
+// across desktop browser dev-tools simulations and real devices.
+//
+// Restart-launched (fromBeginning) sessions are already fullscreen, so this
+// listener has no effect on that path.
+const _orientationLandscapeMQ = window.matchMedia('(orientation: landscape)');
+function _onOrientationLandscape(mq) {
+  if (!mq.matches) return;             // portrait → no-op
+  if (!playActive || playFullscreen) return; // not eligible
+  if (playStartedFromBeginning) return; // would already be fullscreen
+  togglePlayFullscreen();
+}
+// Modern Safari/Firefox use addEventListener; older Safari uses addListener.
+if (_orientationLandscapeMQ.addEventListener) {
+  _orientationLandscapeMQ.addEventListener('change', _onOrientationLandscape);
+} else if (_orientationLandscapeMQ.addListener) {
+  _orientationLandscapeMQ.addListener(_onOrientationLandscape);
+}
 
 // ============================================================
 //  CANVAS RESIZE
@@ -2745,8 +2966,8 @@ function toggleEdPlay(w) {
   const scr = w === 'n' ? nScr : sScr;
   edMs0[w] = t2ms(scr);
   edT0[w] = performance.now();
-  // Start audio with offset: audio position = chartMs + chartOffset - globalOffset
-  const audioStartMs = edMs0[w] + D.metadata.offset - globalOffset;
+  // Start audio with offset: audio position = chartMs + chartOffset
+  const audioStartMs = edMs0[w] + D.metadata.offset;
   startAud(audioStartMs);
   $(w === 'n' ? 'nPlayBtn' : 'sPlayBtn').textContent = '⏸';
 
@@ -2821,11 +3042,57 @@ function playSeekTo(v) {
   drawPlayIdle();
 }
 
+/**
+ * Phase 7-3: toggle fullscreen during a play session, OR enter fullscreen
+ * preview when no session is active. The button is always visible on the
+ * playbar; behavior:
+ *   - playActive && playFullscreen=false → request fullscreen, render shifts
+ *     to playFSCv on next frame. Session continues uninterrupted.
+ *   - playActive && playFullscreen=true → exit fullscreen. onFullscreenChange
+ *     demotes back to windowed (since playStartedFromBeginning is false in
+ *     this scenario — Restart-launched sessions don't expose this button
+ *     interactively because they're already fullscreen).
+ *   - !playActive → just toggle document fullscreen on the play overlay so
+ *     the user can preview the static frame in fullscreen if they want.
+ */
+function togglePlayFullscreen() {
+  if (playActive && playFullscreen) {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) exit.call(document).catch(() => {});
+    return;
+  }
+  if (playActive && !playFullscreen) {
+    const el = $('playFS');
+    el.classList.add('show');
+    playFullscreen = true;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) req.call(el).catch(() => {});
+    setTimeout(rszPlayFSCanvas, 80);
+    return;
+  }
+  // Idle preview fullscreen — uncommon path but fine to support.
+  const el = $('playFS');
+  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    el.classList.add('show');
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) req.call(el).catch(() => {});
+    setTimeout(() => { rszPlayFSCanvas(); drawPlayScreen($('playFSCv'), sharedMs); }, 80);
+  } else {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) exit.call(document).catch(() => {});
+    el.classList.remove('show');
+  }
+}
+
 // ============================================================
 //  SHARED GAME RENDERER
 // ============================================================
 // opts = { hitEffects, hitMap (null=auto), missSet, showMissColor }
 function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
+  // Phase 7-3: jacket backdrop. Drawn first so every chart element renders
+  // on top of it. No-op when no jacket is loaded.
+  drawJacketBackground(ctx, gx, gy, gw, gh);
+
   const curTk = ms2t(curMs);
   const visMs = 2000 / pvSpd; const jY = gy + gh * (8 / 9);
   const topMs = curMs + visMs, botMs = curMs - visMs * 0.15;
@@ -2862,7 +3129,11 @@ function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   const {lP, rP, stepTicks} = buildShapePointArrays(botTk, topTk, steps, tk2y, p2x);
 
   // --- Draw filled shape area ---
-  if (lP.length > 1) {
+  // Phase 7-3: skip the opaque dark fill when a jacket backdrop is present —
+  // otherwise it would cover the very thing we just drew. The shape outline
+  // (drawn just below) plus the boundary strokes still demarcate the playable
+  // area visually.
+  if (lP.length > 1 && !_jacketImg) {
     ctx.fillStyle = '#121212';
     ctx.beginPath();
     lP.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
@@ -3570,6 +3841,13 @@ function syncMeta() {
   // Phase 7-2: keep the measure-label offset input mirrored on chart load.
   const moInput = $('mMeasureOff');
   if (moInput) moInput.value = D.metadata.measureLabelOffset || 0;
+  // Phase 7-3: jacket UI — preview thumbnail + brightness slider/label.
+  _syncJacketUI();
+  const jb = (D.metadata.jacketBrightness != null) ? D.metadata.jacketBrightness : 50;
+  const brInput = $('mJacketBright');
+  if (brInput) brInput.value = jb;
+  const brLbl = $('jacketBrightLbl');
+  if (brLbl) brLbl.textContent = jb + '%';
   renderTempoList(); renderTSList(); renderTeList();
 }
 
@@ -3892,7 +4170,10 @@ function drawPlayScreen(cv, curMs) {
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cw, ch_);
   const asp = 16 / 9; let gw, gh, gx, gy;
   if (cw / ch_ > asp) { gh = ch_; gw = gh * asp; gx = (cw - gw) / 2; gy = 0; } else { gw = cw; gh = gw / asp; gx = 0; gy = (ch_ - gh) / 2; }
-  ctx.fillStyle = '#050508'; ctx.fillRect(gx, gy, gw, gh);
+  // Phase 7-3: dark game-area fill is suppressed when a jacket backdrop is
+  // loaded — drawGameFrame's drawJacketBackground call needs a transparent
+  // canvas underneath to render onto.
+  if (!_jacketImg) { ctx.fillStyle = '#050508'; ctx.fillRect(gx, gy, gw, gh); }
   ctx.save(); ctx.beginPath(); ctx.rect(gx, gy, gw, gh); ctx.clip();
   drawGameFrame(ctx, gx, gy, gw, gh, curMs, {
     hitEffects: playEffects, hitMap: playHitMap, missSet: playMissSet, showMissColor: true,
@@ -3965,7 +4246,8 @@ function drawPlayIdle() {
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cw, ch_);
   const asp = 16 / 9; let gw, gh, gx, gy;
   if (cw / ch_ > asp) { gh = ch_; gw = gh * asp; gx = (cw - gw) / 2; gy = 0; } else { gw = cw; gh = gw / asp; gx = 0; gy = (ch_ - gh) / 2; }
-  ctx.fillStyle = '#050508'; ctx.fillRect(gx, gy, gw, gh);
+  // Phase 7-3: same as drawPlayScreen — let the jacket backdrop show through.
+  if (!_jacketImg) { ctx.fillStyle = '#050508'; ctx.fillRect(gx, gy, gw, gh); }
   ctx.save(); ctx.beginPath(); ctx.rect(gx, gy, gw, gh); ctx.clip();
   // Show static frame at current shared position — no live hits/misses driven from this draw,
   // but still show HUD so the user sees title/difficulty/score-so-far at all times on Play.
@@ -4127,6 +4409,51 @@ function getPlayJudgment(channel, curMs) {
   return best ? {note: best, diff: curMs - t2ms(best.startTick)} : null;
 }
 
+/**
+ * Phase 7-3: seed playHitMap/combo as if every note before `curMs` had been
+ * autoplayed as SYNC. Called at the start of every play session — including
+ * Restart from -LEAD_IN_MS (where there are no past notes, so it's a no-op)
+ * and Play from a non-zero seek (where the player should see the combo they
+ * "would have had" if they'd played from the start).
+ *
+ * Each non-LN past note → 1 head SYNC, +1 combo.
+ * Each past LN whose tail is ALSO before curMs → head SYNC + tail success,
+ *   +2 combo. The hitMap entry has tailDone=true so checkPlayMisses won't
+ *   later mark its tail as failed.
+ * A past LN whose tail is AFTER curMs is treated as head-SYNC, +1 combo,
+ *   tailDone=false — so live release/miss-check logic continues normally
+ *   from there. (This keeps autoplay-of-past consistent: if the user starts
+ *   mid-LN they'll need to release at the right time to keep the tail-success
+ *   count, just like if they'd held since the head.)
+ *
+ * AP/FC validity: SYNC count + accuracy include these seeded heads/tails, so
+ * starting mid-chart and playing perfectly to the end yields the same
+ * counts/score as a clean run from the start. This is the explicit goal —
+ * use the seek to test specific sections without losing AP eligibility.
+ */
+function seedPlayStateFromCurMs(curMs) {
+  for (const n of D.notes) {
+    const nMs = t2ms(n.startTick);
+    if (nMs >= curMs) continue;
+    const isLN = n.duration > 0;
+    const tailMs = isLN ? t2ms(n.startTick + n.duration) : nMs;
+    const tailIsPast = isLN && tailMs < curMs;
+    playHitMap.set(n, {
+      headHit: true,
+      headDiff: 0,
+      headType: 'SYNC',
+      headMs: nMs,
+      isLN,
+      tailDone: !isLN || tailIsPast,
+      tailFailed: false,
+      tailMs: isLN ? tailMs : undefined,
+    });
+    playCombo++;          // head SYNC
+    if (isLN && tailIsPast) playCombo++; // tail SYNC
+  }
+  if (playCombo > playMaxCombo) playMaxCombo = playCombo;
+}
+
 function applyJudgment(note, diff, curMs, silent) {
   const abs = Math.abs(diff);
   // Wide notes: SYNC only (within ±100ms), no PERFECT/GOOD
@@ -4264,7 +4591,7 @@ function playLoop(ts) {
   // Lead-in: start audio when curMs crosses 0
   if (!playAudioStarted && curMs >= 0) {
     playAudioStarted = true;
-    startAud(D.metadata.offset - globalOffset);
+    startAud(D.metadata.offset);
   }
   if (curMs >= 0) {
     if (playAutoplay) {
@@ -4308,6 +4635,22 @@ function playLoop(ts) {
   }
   const cv = playFullscreen ? $('playFSCv') : $('plCv');
   if (cv) drawPlayScreen(cv, curMs);
+  // Phase 7-3: in windowed mode, the playbar (seek slider, time display) is
+  // visible — keep them in sync so the user sees real progress. Throttle by
+  // skipping the DOM write when the value didn't actually change at slider
+  // resolution (1/1000), which is the common case at 60 fps.
+  if (!playFullscreen && totalMs > 0) {
+    const seek = $('playSeek');
+    if (seek) {
+      const newVal = Math.max(0, Math.min(1000, Math.round((curMs / totalMs) * 1000)));
+      if (+seek.value !== newVal) seek.value = newVal;
+    }
+    const tm = $('playTime');
+    if (tm) {
+      const txt = fmtMs(Math.max(0, curMs));
+      if (tm.textContent !== txt) tm.textContent = txt;
+    }
+  }
   if (curMs > (totalMs || 0) + 2000) { stopPlay(); return; }
   playRAF = requestAnimationFrame(playLoop);
 }
@@ -4317,19 +4660,35 @@ function playLoop(ts) {
  * @param {boolean} fromBeginning  true = restart from lead-in; false = from current sharedMs
  * @param {boolean} autoplay       true = auto-SYNC judgment; false = live key input
  *
- * v21: all four combinations enter fullscreen. HUD is unchanged across modes.
+ * Phase 7-3:
+ *   - Restart (fromBeginning) keeps the v21 fullscreen behavior — immersive,
+ *     scoreboard-style entry.
+ *   - Play/Pause from a seek position enters WINDOWED mode: the seek bar and
+ *     control row stay visible, the user can still scroll the page (if longer
+ *     than the viewport), and they can opt into fullscreen via the new ⛶
+ *     button on the playbar or by rotating the device into landscape.
+ *   - Every entry path seeds playHitMap so notes prior to curMs count as
+ *     auto-SYNC, preserving combo and AP/FC eligibility for mid-chart testing.
  */
 function startPlay(fromBeginning, autoplay) {
   initAud(); // Ensure AudioContext is ready (must be in user gesture handler)
   const offMs = fromBeginning ? -LEAD_IN_MS : sharedMs;
   playOffMs = offMs;
   playActive = true;
-  playFullscreen = true;          // v21: always fullscreen
+  playStartedFromBeginning = !!fromBeginning;
+  // Restart → fullscreen immediately. Play/Pause → start windowed; user can
+  // promote to fullscreen later. Tracked separately so an orientation-driven
+  // exit from fullscreen doesn't end the session for the windowed entry path.
+  playFullscreen = !!fromBeginning;
   playAutoplay = !!autoplay;
   playAudioStarted = false;
   playHitMap.clear(); playMissSet.clear(); playEffects = [];
   playCombo = 0; playMaxCombo = 0; playJudgQueue = [];
   playHoldState = {}; playKeyHeld.clear();
+
+  // Phase 7-3: treat all past notes (relative to start point) as autoplayed
+  // SYNC so combo / score / accuracy reflect a continuous run.
+  seedPlayStateFromCurMs(offMs);
 
   // Reset both schedulers; only one will be used per frame based on playAutoplay,
   // but resetting both keeps the pointer state clean after seek/toggle.
@@ -4340,16 +4699,22 @@ function startPlay(fromBeginning, autoplay) {
   // Update play button icon (in case user returns to Play tab after session)
   $('playBtn').textContent = '⏸';
 
-  // Always enter fullscreen
-  const el = $('playFS');
-  el.classList.add('show');
-  const req = el.requestFullscreen || el.webkitRequestFullscreen;
-  if (req) req.call(el).catch(() => {});
-  setTimeout(rszPlayFSCanvas, 80);
+  if (playFullscreen) {
+    const el = $('playFS');
+    el.classList.add('show');
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) req.call(el).catch(() => {});
+    setTimeout(rszPlayFSCanvas, 80);
+  } else {
+    // Windowed: render onto the inline plCv. Make sure it's sized to its
+    // actual container box (the cbody flexes to fill remaining vertical
+    // space, which depends on whether the playbar/header are visible).
+    rszActiveCanvas();
+  }
 
   // If not from beginning (no lead-in), start audio immediately
   if (!fromBeginning) {
-    startAud(offMs + D.metadata.offset - globalOffset);
+    startAud(offMs + D.metadata.offset);
     playAudioStarted = true;
   }
   // If from beginning, audio will be triggered in playLoop when curMs >= 0
@@ -4364,11 +4729,15 @@ function stopPlay() {
   stopAud(); playKeyHeld.clear(); playHoldState = {};
 
   if (playFullscreen) {
+    // Phase 7-3: fullscreen handling. The actual `document.exitFullscreen`
+    // call may resolve via the fullscreenchange event (which calls back here)
+    // — guard against re-entrance by clearing the flag before requesting exit.
     const exit = document.exitFullscreen || document.webkitExitFullscreen;
     if (exit) exit.call(document).catch(() => {});
     $('playFS').classList.remove('show');
     playFullscreen = false;
   }
+  playStartedFromBeginning = false;
 
   $('playBtn').textContent = '▶';
 
@@ -4617,18 +4986,20 @@ Object.assign(window, {
   // Grid pickers (referenced via template string `${cb}(${d})` in buildGP)
   pickNG, pickSG,
   // Playback — editor
-  toggleEdPlay, edSeek, toggleMetronome, setOffsetHere, setGlobalPreset, setPlaybackRate, drawN,
+  toggleEdPlay, edSeek, toggleMetronome, setOffsetHere, setPlaybackRate, drawN,
   // Text events
   teNew, teSave, teDelete, teEditByIdx, tePickSelect,
   // Tempo / time signature (meta tab)
   addTempo, editTempo, delTempo, addTimeSig, editTS, delTS,
   // Play mode (v21: unified from former Preview + Play)
-  playToggle, playRestart, playSeekTo,
+  playToggle, playRestart, playSeekTo, togglePlayFullscreen,
   stopPlay, resetKeyBindings,
   // File / import / export
   doExport, doImport, showMod, closeMod, fmSave, fmSaveAs, fmLoad, fmDelete,
   // Audio
   loadAud,
+  // Jacket (Phase 7-3)
+  loadJacket, clearJacket,
 });
 
 // ============================================================
@@ -4657,11 +5028,9 @@ window.addEventListener('DOMContentLoaded', () => {
     } catch(e) {}
   }
 
-  // Wire up inputs that previously used inline `onchange="globalOffset=..."`-style
-  // handlers. Inline handlers execute in window scope, which can't see module-local
-  // `let` bindings, so those four are now bound programmatically.
-  const globOffInput = $('mGlobalOff');
-  if (globOffInput) globOffInput.addEventListener('change', e => { globalOffset = +e.target.value; });
+  // Wire up inputs that previously used inline `onchange="..."`-style handlers.
+  // Inline handlers execute in window scope, which can't see module-local `let`
+  // bindings, so these are bound programmatically.
   const hitVolInput = $('mHitVol');
   if (hitVolInput) hitVolInput.addEventListener('input', e => {
     hitVol = e.target.value / 100;
@@ -4684,6 +5053,25 @@ window.addEventListener('DOMContentLoaded', () => {
     if (activeTab === 'note') drawN();
     else if (activeTab === 'shape') drawS();
     scheduleAutoSave();
+  });
+
+  // Phase 7-3: jacket file input + brightness slider + Clear button.
+  const jacketInput = $('jacketF');
+  if (jacketInput) jacketInput.addEventListener('change', e => loadJacket(e.target));
+  const jacketBrInput = $('mJacketBright');
+  if (jacketBrInput) jacketBrInput.addEventListener('input', e => {
+    const v = Math.max(0, Math.min(100, +e.target.value || 0));
+    D.metadata.jacketBrightness = v;
+    const lbl = $('jacketBrightLbl'); if (lbl) lbl.textContent = v + '%';
+    // Live preview when the user is parked on the Play tab. Notes/Shape tabs
+    // don't render the jacket, so no redraw needed there.
+    if (activeTab === 'play' && !playActive) drawPlayIdle();
+    scheduleAutoSave();
+  });
+  const jacketClear = $('jacketClearBtn');
+  if (jacketClear) jacketClear.addEventListener('click', e => {
+    e.stopPropagation(); // don't trigger the file picker on the parent .dz
+    clearJacket();
   });
 
   // v21: autoplay toggle in the Play tab control bar

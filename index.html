@@ -240,11 +240,6 @@ canvas{display:block;position:absolute;top:0;left:0}
     <h3>Offset / Sync</h3>
     <div class="mr2" style="margin-top:4px">
       <div><label>Chart Offset (ms)</label><input id="mOff" type="number" value="0" onchange="D.metadata.offset=+this.value;$('syncOff').value=this.value;drawN()"></div>
-      <div><label>Global Latency (ms)</label><input id="mGlobalOff" type="number" value="0"></div>
-    </div>
-    <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">
-      <button class="nsm" onclick="setGlobalPreset(0)">Wired (0)</button>
-      <button class="nsm" onclick="setGlobalPreset(100)">BT (100)</button>
     </div>
     <div class="mr2" style="margin-top:8px">
       <div><label>Measure Label Offset</label><input id="mMeasureOff" type="number" value="0" step="1" title="첫 노트가 0으로 표시되도록 마디 번호를 시프트. 예: 첫 노트가 m4면 -3 입력. 내부 데이터는 변경 없음."></div>
@@ -258,6 +253,18 @@ canvas{display:block;position:absolute;top:0;left:0}
     <h3>Audio</h3>
     <div class="dz" onclick="$('audF').click()">Tap to load audio<input type="file" id="audF" accept="audio/*" style="display:none" onchange="loadAud(this)"></div>
     <div id="audS" style="font-size:10px;color:var(--tx2)">No audio</div>
+    <h3>Jacket</h3>
+    <div class="dz" onclick="$('jacketF').click()" style="display:flex;align-items:center;gap:8px">
+      <img id="jacketPrev" style="display:none;width:48px;height:48px;border-radius:4px;object-fit:cover;flex-shrink:0">
+      <span id="jacketLbl" style="flex:1">Tap to load jacket (1:1 square image)</span>
+      <input type="file" id="jacketF" accept="image/*" style="display:none">
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+      <label style="font-size:9px;color:var(--tx2);min-width:60px">Brightness</label>
+      <input id="mJacketBright" type="range" min="0" max="100" step="5" value="50" style="flex:1;max-width:180px">
+      <span id="jacketBrightLbl" style="font-size:9px;color:var(--tx2);min-width:32px">50%</span>
+      <button class="nsm" id="jacketClearBtn" style="font-size:9px">Clear</button>
+    </div>
     <h3>Preview</h3>
     <div class="mr2">
       <div><label>Speed</label><input id="mSpd" type="number" value="3.0" min="0.5" max="10" step="0.05"></div>
@@ -282,12 +289,13 @@ canvas{display:block;position:absolute;top:0;left:0}
     </div>
     <div class="pvbar" id="playBar">
       <button class="bp" id="playBtn" onclick="playToggle()">▶</button>
-      <button class="nsm" onclick="playRestart()" title="처음부터">↺</button>
+      <button class="nsm" onclick="playRestart()" title="처음부터 (전체화면)">↺</button>
       <input type="range" id="playSeek" min="0" max="1000" value="0" oninput="playSeekTo(+this.value)" style="flex:1;height:3px">
       <span class="bi" id="playTime">0:00</span>
       <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--tx2);cursor:pointer;padding:0 2px" title="Autoplay: 자동 SYNC 판정">
         <input type="checkbox" id="playAutoChk" style="margin:0;width:12px;height:12px">Auto
       </label>
+      <button class="nsm" id="playFsBtn" onclick="togglePlayFullscreen()" title="전체화면" style="font-size:11px">⛶</button>
     </div>
   </div>
 

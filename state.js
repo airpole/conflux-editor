@@ -22,7 +22,13 @@ export const D = {
     // Example: a chart whose first note sits at internal measure 4 can set
     // measureLabelOffset = -3 so the same tick reads as "1" — and the bars
     // before it read 0, -1, -2 (helpful for spotting 8/16-bar loops).
-    measureLabelOffset: 0
+    measureLabelOffset: 0,
+    // Phase 7-3: optional square jacket image, used as a blurred background
+    // during Play. Stored as a data URL so it travels with the chart JSON.
+    // Empty string = no jacket loaded; brightness 0..100 (5-step UI; 50% default)
+    // controls how prominent the background appears (drawn alpha = brightness/100).
+    jacketImage: "",
+    jacketBrightness: 50
   },
   tempo: [{tick: 0, bpm: 120}],
   timeSignatures: [{tick: 0, numerator: 4, denominator: 4}],
