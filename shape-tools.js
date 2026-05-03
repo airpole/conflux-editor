@@ -1,13 +1,19 @@
 // ============================================================
 //  SHAPE-TOOLS — toolbar (setST/sZ/sMet), clipboard, flip, addShapeEvt
 // ============================================================
+// Phase B-1: doShapeSelectionDelete, doShapePaste, doShapeFlipSelected
+// migrated from saveHist('s') to commands.js dispatch. All three factories
+// call normalizeShapeChain() in both apply() and undo() because chain
+// events are interdependent — adding/removing/flipping any one event
+// re-derives startTick/duration of every other event on the same chain.
+
 import { $, TPB } from './constants.js';
 import { D } from './state.js';
 import { ES } from './editor-state.js';
 import { sp2f, normalizeShapeChain } from './shape.js';
 import { snap, toast } from './utility.js';
 import { cancelArc } from './edit-options.js';
-import { saveHist } from './history.js';
+import { dispatch, AddShapeEvents, DeleteShapeEvents, FlipShapeEvents } from './commands.js';
 
 export function sMet() {
   const cv = $('sCv'), dpr = devicePixelRatio;
@@ -33,16 +39,13 @@ export function sZ(d) {
  */
 export function doShapeSelectionDelete() {
   if (ES.selectedShapeEvts.size === 0) return false;
-  const count = ES.selectedShapeEvts.size;
-  const initSkipped = [...ES.selectedShapeEvts].filter(e => e.easing === null).length;
-  const actualCount = count - initSkipped;
-  if (actualCount === 0) { toast('Init 이벤트는 삭제할 수 없습니다'); return false; }
-  D.shapeEvents = D.shapeEvents.filter(e => !ES.selectedShapeEvts.has(e) || e.easing === null);
+  const all = [...ES.selectedShapeEvts];
+  const deletable = all.filter(e => e.easing !== null);
+  const initSkipped = all.length - deletable.length;
+  if (deletable.length === 0) { toast('Init 이벤트는 삭제할 수 없습니다'); return false; }
   ES.selectedShapeEvts.clear();
-  normalizeShapeChain(false); normalizeShapeChain(true);
-  saveHist('s');
-  import('./shape-render.js').then(m => m.drawS());
-  toast(`${actualCount}개 shape 삭제${initSkipped ? ` (Init ${initSkipped}개 유지)` : ''}`);
+  dispatch(DeleteShapeEvents(deletable));
+  toast(`${deletable.length}개 shape 삭제${initSkipped ? ` (Init ${initSkipped}개 유지)` : ''}`);
   return true;
 }
 
@@ -121,32 +124,32 @@ export function doShapePaste(flip) {
       targetPos: pos,
       easing: c.easing
     };
-    D.shapeEvents.push(ne);
     newEvts.push(ne);
   }
-  normalizeShapeChain(false); normalizeShapeChain(true);
+  if (newEvts.length === 0) return;
   ES.selectedShapeEvts.clear();
   newEvts.forEach(e => ES.selectedShapeEvts.add(e));
-  saveHist('s');
+  dispatch(AddShapeEvents(newEvts));
   toast(`${flip ? 'Flip-' : ''}Pasted ${newEvts.length} shape(s)`);
-  import('./shape-render.js').then(m => m.drawS());
 }
 
 /** Mirror selected shape events in place around the center axis. */
 export function doShapeFlipSelected() {
   if (ES.selectedShapeEvts.size === 0) { toast('No shapes selected'); return; }
-  let count = 0;
+  const pairs = [];
   for (const e of ES.selectedShapeEvts) {
     if (e.easing === null) continue;
-    e.targetPos = 64 - e.targetPos;
-    e.isRight = !e.isRight;
-    count++;
+    pairs.push({
+      event: e,
+      oldTargetPos: e.targetPos,
+      oldIsRight: e.isRight,
+      newTargetPos: 64 - e.targetPos,
+      newIsRight: !e.isRight
+    });
   }
-  if (count === 0) { toast('Nothing to flip (Init only)'); return; }
-  normalizeShapeChain(false); normalizeShapeChain(true);
-  saveHist('s');
-  import('./shape-render.js').then(m => m.drawS());
-  toast(`${count}개 shape 뒤집기`);
+  if (pairs.length === 0) { toast('Nothing to flip (Init only)'); return; }
+  dispatch(FlipShapeEvents(pairs));
+  toast(`${pairs.length}개 shape 뒤집기`);
 }
 
 /**

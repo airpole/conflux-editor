@@ -64,11 +64,19 @@ export function renderTSList() {
  * - Common: updateTotalMs, redraw active tab, scheduleAutoSave.
  *
  * Phase B-1 dual-write rationale: while migration is in progress, some
- * sites still call saveHist('n')/saveHist('s') directly and notes-input
- * mutates D.notes outside dispatch. To keep undo/redo coherent across
- * mixed sites, this listener also pushes a snapshot when a dispatched
- * command would have otherwise needed one. saveHist's dedup prevents
- * double-snapshots when callers already invoke saveHist themselves.
+ * sites still call saveHist('n')/saveHist('s') directly (shape-input.js,
+ * baseline init). To keep undo/redo coherent across mixed sites, this
+ * listener also pushes a snapshot when a dispatched command would have
+ * otherwise needed one. saveHist's dedup prevents double-snapshots when
+ * callers already invoke saveHist themselves.
+ *
+ * commands.js calls listeners as `l(cmd)` for fresh dispatch, and
+ * `l(cmd, 'undo'|'redo')` when walking the stack. We dual-write only
+ * on fresh dispatch — the kind-less call. (v12/v13 inadvertently checked
+ * `kind === 'apply'` which is never true; users still saw "Undo works"
+ * because history.js#undo pushes a current-state snapshot before walking,
+ * so a flip-then-undo coincidentally lands on the prior state. v14 fixes
+ * the predicate so dual-write engages correctly.)
  *
  * Once all saveHist('n')/('s') call sites are gone, this dual-write
  * branch can be removed and undo() can use the commands stack directly.
@@ -83,7 +91,8 @@ export function _afterAnyCommand(cmd, kind) {
 
   // Dual-write into legacy snapshot stacks for undo/redo continuity.
   // Skip on undo/redo — those phases are themselves walking the stack.
-  if (kind === 'apply') {
+  // Fresh dispatch passes no `kind` argument (undefined).
+  if (kind === undefined) {
     if (inv.includes('notes') || inv.includes('textEvents')) {
       import('./history.js').then(m => m.saveHist('n'));
     }

@@ -173,14 +173,42 @@ export const EditTimeSig = (tick, oldTs, newTs) => cmd(
 );
 
 // ---- Shape events ----
+// Shape events live in D.shapeEvents and are heavily interdependent through
+// normalizeShapeChain — adding/removing/flipping any one event re-derives
+// startTick/duration of every other event on the same chain. Each shape
+// command therefore calls normalizeShapeChain() on BOTH chains in apply()
+// and undo(), preserving the v9 baseline behavior (always normalize both).
+//
+// Init events (easing === null) are anchor rows that cannot be removed.
+// Delete/Flip factories silently skip them.
+
+import { normalizeShapeChain } from './shape.js';
+
+const _normalizeBothChains = () => {
+  normalizeShapeChain(false);
+  normalizeShapeChain(true);
+};
 
 /**
- * Delete multiple shape events at once. Reserved for future use when Shape
- * drag/edit operations migrate to Command pattern (Phase 3-5). Phase 3-1
- * (multi-delete via sel+del) continues to use the saveHist('s') snapshot
- * stack to keep undo ordering interleaved with existing Shape edits.
- *
- * `events` is an array of shape event references (identity, not snapshots).
+ * Add one or more shape events. Caller passes fresh event objects; this
+ * factory pushes them and re-normalizes both chains. Undo removes them.
+ * Both branches normalize so dependent events return to the right ticks.
+ */
+export const AddShapeEvents = (events) => cmd(
+  'AddShapeEvents',
+  () => {
+    for (const e of events) D.shapeEvents.push(e);
+    _normalizeBothChains();
+  },
+  () => {
+    D.shapeEvents = D.shapeEvents.filter(e => !events.includes(e));
+    _normalizeBothChains();
+  },
+  ['shapeEvents']
+);
+
+/**
+ * Delete multiple shape events at once.
  * Init events (easing === null) are silently kept — Left/Right init anchor
  * rows cannot be removed.
  */
@@ -190,13 +218,40 @@ export const DeleteShapeEvents = (events) => {
     'DeleteShapeEvents',
     () => {
       D.shapeEvents = D.shapeEvents.filter(e => !deletable.includes(e));
+      _normalizeBothChains();
     },
     () => {
-      D.shapeEvents.push(...deletable);
+      for (const e of deletable) D.shapeEvents.push(e);
+      _normalizeBothChains();
     },
     ['shapeEvents']
   );
 };
+
+/**
+ * Mirror selected shape events around the center axis. Init events skipped.
+ * `pairs` = [{ event, oldTargetPos, oldIsRight, newTargetPos, newIsRight }, ...]
+ * Caller computes new values; apply() and undo() force them in place.
+ * The flip itself moves an event between chains, so both chains are normalized.
+ */
+export const FlipShapeEvents = (pairs) => cmd(
+  'FlipShapeEvents',
+  () => {
+    for (const p of pairs) {
+      p.event.targetPos = p.newTargetPos;
+      p.event.isRight = p.newIsRight;
+    }
+    _normalizeBothChains();
+  },
+  () => {
+    for (const p of pairs) {
+      p.event.targetPos = p.oldTargetPos;
+      p.event.isRight = p.oldIsRight;
+    }
+    _normalizeBothChains();
+  },
+  ['shapeEvents']
+);
 
 // ---- Notes ----
 // Notes are mutated in place by reference, so command factories store the
