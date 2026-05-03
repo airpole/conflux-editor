@@ -3,8 +3,8 @@
 // ============================================================
 // All editor logic lives in dedicated modules. This file boots them and
 // exposes the surface the inline `onclick="..."` handlers in index.html
-// need (Phase A keeps the existing HTML untouched). Phase B will convert
-// onclick= to addEventListener and shrink this shim to nothing.
+// need. Phase C will convert onclick= to addEventListener and shrink this
+// shim to nothing.
 
 import { $, LS_PREFIX } from './constants.js';
 import { D } from './state.js';
@@ -53,7 +53,7 @@ import { rszActiveCanvas } from './canvas-resize.js';
 //  GLOBAL EXPOSURE — for inline HTML onclick="..." handlers
 // ============================================================
 // Module scope doesn't auto-publish bindings to window, so do it explicitly.
-// Phase B will rewrite index.html's onclick= attributes to addEventListener
+// Phase C will rewrite index.html's onclick= attributes to addEventListener
 // and shrink this list.
 Object.assign(window, {
   // Data + DOM helper accessed from inline handlers

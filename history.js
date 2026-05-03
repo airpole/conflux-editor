@@ -5,7 +5,7 @@
 // already dispatch commands (m-scope) and undo/redo prefers the command
 // stack first; this module just relocates the original logic.
 //
-// Future Phase B: migrate notes & shape edits to commands.js, delete
+// Future Phase B-1: migrate notes & shape edits to commands.js, delete
 // histScopes.n / histScopes.s, then collapse this file entirely.
 
 import { D } from './state.js';

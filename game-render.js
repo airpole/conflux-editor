@@ -5,9 +5,12 @@
 // argument carries hit/miss state, hit effect array, and whether to
 // show invalid-overlap warnings.
 //
-// Phase A: still a god function. Phase B will swap the inline
-// step-connector / boundary blocks for shape-render-helpers, but
-// for parity with v20 we keep the body verbatim here.
+// Phase B (v21 → v10 of zip series): tk-info cache, filled body /
+// boundary strokes, and step connectors moved to shape-render-helpers.
+// What's left here is genuinely game-specific: jacket backdrop, wide-LN
+// bodies, line dividers, TS-aware measure lines, pre-computed note state,
+// 2-pass z-ordered rendering, judgment line, hit-effect ripples, and
+// the text-events overlay.
 
 import { TPB, CHL, WIDE_BODY, WIDE_COLOR, OVERLAP_COLOR, OVERLAP_BODY,
          NORMAL_BODY, INVALID_COLOR } from './constants.js';
@@ -20,6 +23,8 @@ import { sp2f, getShape, getLines, buildShapePointArrays,
 import { computeNoteOverlaps, classifyNotesForZOrder } from './overlaps.js';
 import { resolveNoteColor, headColorAtTick, splitBodyByOverlap, drawNoteHead } from './renderer.js';
 import { drawJacketBackground } from './jacket.js';
+import { makeTkInfoCache, drawShapeBoundary, drawStepConnectors,
+         STYLE_GAME, STYLE_GAME_STEP } from './shape-render-helpers.js';
 
 export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   drawJacketBackground(ctx, gx, gy, gw, gh);
@@ -31,18 +36,8 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   const p2x = p => gx + sp2f(p) * gw;
   const tk2y = tk => { const ms_ = t2ms(tk); return jY - ((ms_ - curMs) / visMs) * (jY - gy); };
 
-  // Frame-scoped {sh, lines} cache. raw → normalized min/max.
-  const _tkInfo = new Map();
-  const getTkInfo = (tk) => {
-    let info = _tkInfo.get(tk);
-    if (!info) {
-      const raw = getShape(tk);
-      const sh = raw.left <= raw.right ? raw : {left: raw.right, right: raw.left};
-      info = {sh, lines: getLines(tk)};
-      _tkInfo.set(tk, info);
-    }
-    return info;
-  };
+  // Frame-scoped {sh, lines} cache (normalized: raw left/right swapped to min/max).
+  const getTkInfo = makeTkInfoCache('normalized');
 
   const botTk = ms2t(botMs), topTk = ms2t(topMs);
   const pvEvtDensity = countShapeEventsInRange(botTk, topTk);
@@ -50,56 +45,12 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
 
   const {lP, rP, stepTicks} = buildShapePointArrays(botTk, topTk, steps, tk2y, p2x);
 
-  // Filled shape area
-  if (lP.length > 1) {
-    ctx.fillStyle = '#121212';
-    ctx.beginPath();
-    lP.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
-    for (let i = rP.length - 1; i >= 0; i--) ctx.lineTo(rP[i].x, rP[i].y);
-    ctx.closePath(); ctx.fill();
-  }
+  // Filled shape body + outer boundary strokes (normalized chains)
+  drawShapeBoundary(ctx, lP, rP, STYLE_GAME);
 
-  // Outer boundary lines
-  ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  lP.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
-  ctx.stroke();
-  ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  rP.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
-  ctx.stroke();
-
-  // Step horizontal connectors
-  for (const stk of stepTicks) {
-    const y = tk2y(stk);
-    if (y < gy - 2 || y > gy + gh + 2) continue;
-    const rawB = getShape(stk - 0.0001);
-    const rawA = getShape(stk + 0.0001);
-    const shBefore = rawB.left <= rawB.right ? rawB : {left: rawB.right, right: rawB.left};
-    const shAfter  = rawA.left <= rawA.right ? rawA : {left: rawA.right, right: rawA.left};
-    const pls = shBefore.left, prs = shBefore.right;
-    const cls = shAfter.left,  crs = shAfter.right;
-    if (Math.abs(pls - cls) > 0.01) {
-      ctx.strokeStyle = '#ffffff88'; ctx.lineWidth = 1.8;
-      ctx.beginPath(); ctx.moveTo(p2x(pls), y); ctx.lineTo(p2x(cls), y); ctx.stroke();
-    }
-    if (Math.abs(prs - crs) > 0.01) {
-      ctx.strokeStyle = '#ffffff88'; ctx.lineWidth = 1.8;
-      ctx.beginPath(); ctx.moveTo(p2x(prs), y); ctx.lineTo(p2x(crs), y); ctx.stroke();
-    }
-    if (prs < cls - 0.1) {
-      ctx.strokeStyle = '#ffffff66'; ctx.lineWidth = 1.5;
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath(); ctx.moveTo(p2x(prs), y); ctx.lineTo(p2x(cls), y); ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    if (crs < pls - 0.1) {
-      ctx.strokeStyle = '#ffffff66'; ctx.lineWidth = 1.5;
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath(); ctx.moveTo(p2x(crs), y); ctx.lineTo(p2x(pls), y); ctx.stroke();
-      ctx.setLineDash([]);
-    }
-  }
+  // Step horizontal connectors (normalized: separate prs<cls / crs<pls cases)
+  drawStepConnectors(ctx, stepTicks, tk2y, p2x, STYLE_GAME_STEP, 'normalized',
+                     { topY: gy, botY: gy + gh });
 
   // Wide note LN bodies
   function buildGFTicks(st, et) {
