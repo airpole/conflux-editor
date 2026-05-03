@@ -1,20 +1,26 @@
 // ============================================================
 //  NOTES-TOOLS — toolbar (setNT/nZ), clipboard, flip, shift
 // ============================================================
+// Phase B-1: doFlipSelected, doPaste, sel+del, and shiftSelectedByDelta
+// have been migrated from saveHist('n') snapshots to commands.js dispatch.
+// onDispatch in main.js still triggers a saveHist('n') under the hood
+// (see meta-ui.js _afterAnyCommand), so undo/redo continues to work via
+// the legacy snapshot stack while migration is incomplete elsewhere
+// (notes-input.js, text-events.js, etc. still call saveHist directly).
+
 import { $ } from './constants.js';
 import { D } from './state.js';
 import { ES } from './editor-state.js';
 import { snap, MIRROR_CH, toast } from './utility.js';
-import { saveHist } from './history.js';
+import { dispatch, AddNotes, DeleteNotes, FlipNotes } from './commands.js';
 
 export function setNT(t) {
   // Sel + Del combo: in sel mode with selection, Del deletes instead of switching.
   if (t === 'del' && ES.nTool === 'sel' && ES.selectedNotes.size > 0) {
-    const count = ES.selectedNotes.size;
-    D.notes = D.notes.filter(n => !ES.selectedNotes.has(n));
+    const toDel = [...ES.selectedNotes];
+    const count = toDel.length;
     ES.selectedNotes.clear();
-    saveHist('n');
-    import('./notes-render.js').then(m => m.drawN());
+    dispatch(DeleteNotes(toDel));
     toast(`${count}개 노트 삭제`);
     return;
   }
@@ -67,31 +73,32 @@ export function doPaste(mirror) {
     let ch = c.channel, isW = c.isWide;
     if (mirror) ch = MIRROR_CH[ch] !== undefined ? MIRROR_CH[ch] : ch;
     const n = {channel: ch, startTick: baseTick + c.relTick, duration: c.duration, isWide: isW};
-    if (!D.notes.find(x => x.channel === n.channel && x.startTick === n.startTick && x.isWide === n.isWide)) {
-      D.notes.push(n);
-      newNotes.push(n);
-    }
+    // Collision check: against existing notes AND already-added in this paste.
+    const hit = D.notes.find(x => x.channel === n.channel && x.startTick === n.startTick && x.isWide === n.isWide)
+             || newNotes.find(x => x.channel === n.channel && x.startTick === n.startTick && x.isWide === n.isWide);
+    if (!hit) newNotes.push(n);
   }
+  if (newNotes.length === 0) { toast('Nothing to paste (collisions)'); return; }
   ES.selectedNotes.clear();
   newNotes.forEach(n => ES.selectedNotes.add(n));
-  saveHist('n');
+  dispatch(AddNotes(newNotes));
   toast(`${mirror ? 'Flip-' : ''}Pasted ${newNotes.length} note(s)`);
-  import('./notes-render.js').then(m => m.drawN());
 }
 
 /** Phase 4: in-place flip (Line 1↔4, 2↔3). Wide notes skipped. */
 export function doFlipSelected() {
   if (ES.selectedNotes.size === 0) { toast('No notes selected'); return; }
-  let count = 0;
+  const pairs = [];
   for (const n of ES.selectedNotes) {
     if (n.isWide) continue;
     const next = MIRROR_CH[n.channel];
-    if (next !== undefined && next !== n.channel) { n.channel = next; count++; }
+    if (next !== undefined && next !== n.channel) {
+      pairs.push({ note: n, newChannel: next });
+    }
   }
-  if (count === 0) { toast('Nothing to flip'); return; }
-  saveHist('n');
-  import('./notes-render.js').then(m => m.drawN());
-  toast(`${count}개 노트 뒤집기`);
+  if (pairs.length === 0) { toast('Nothing to flip'); return; }
+  dispatch(FlipNotes(pairs));
+  toast(`${pairs.length}개 노트 뒤집기`);
 }
 
 /**

@@ -36,7 +36,7 @@ import { toggleMetronome, setOffsetHere, setPlaybackRate, loadAud } from './audi
 import { teNew, teSave, teDelete, teEditByIdx, tePickSelect } from './text-events.js';
 import { syncMeta, addTempo, editTempo, delTempo,
          addTimeSig, editTS, delTS, renderTempoList, renderTSList,
-         _afterMetaCommand } from './meta-ui.js';
+         _afterAnyCommand } from './meta-ui.js';
 import { onDispatch } from './commands.js';
 import { playToggle, playRestart, playSeekTo, playSeekPreview, stopPlay } from './play.js';
 import { togglePlayFullscreen, drawPlayIdle } from './play-render.js';
@@ -93,7 +93,7 @@ Object.assign(window, {
 //  INITIALIZATION
 // ============================================================
 window.addEventListener('DOMContentLoaded', () => {
-  onDispatch(_afterMetaCommand);
+  onDispatch(_afterAnyCommand);
 
   // Defensive Still/Arc → Linear migration (in case storage skipped load-chart)
   D.shapeEvents.forEach(e => {

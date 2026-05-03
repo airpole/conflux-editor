@@ -55,10 +55,44 @@ export function renderTSList() {
   }).join('');
 }
 
-/** UI side-effects after an m-scope command. Wired via onDispatch. */
-export function _afterMetaCommand() {
+/**
+ * UI side-effects after any dispatched command. Wired via onDispatch.
+ * - Inspects cmd.invalidates to choose scope-specific work:
+ *     tempo/timeSignatures → re-render Meta tab tempo + TS lists
+ *     notes/textEvents     → push a saveHist('n') snapshot (apply only)
+ *     shapeEvents/lineEvents → push a saveHist('s') snapshot (apply only)
+ * - Common: updateTotalMs, redraw active tab, scheduleAutoSave.
+ *
+ * Phase B-1 dual-write rationale: while migration is in progress, some
+ * sites still call saveHist('n')/saveHist('s') directly and notes-input
+ * mutates D.notes outside dispatch. To keep undo/redo coherent across
+ * mixed sites, this listener also pushes a snapshot when a dispatched
+ * command would have otherwise needed one. saveHist's dedup prevents
+ * double-snapshots when callers already invoke saveHist themselves.
+ *
+ * Once all saveHist('n')/('s') call sites are gone, this dual-write
+ * branch can be removed and undo() can use the commands stack directly.
+ */
+export function _afterAnyCommand(cmd, kind) {
+  const inv = (cmd && cmd.invalidates) || [];
+
+  // m-scope UI re-renders
+  if (inv.includes('tempo') || inv.includes('timeSignatures')) {
+    renderTempoList(); renderTSList();
+  }
+
+  // Dual-write into legacy snapshot stacks for undo/redo continuity.
+  // Skip on undo/redo — those phases are themselves walking the stack.
+  if (kind === 'apply') {
+    if (inv.includes('notes') || inv.includes('textEvents')) {
+      import('./history.js').then(m => m.saveHist('n'));
+    }
+    if (inv.includes('shapeEvents') || inv.includes('lineEvents')) {
+      import('./history.js').then(m => m.saveHist('s'));
+    }
+  }
+
   updateTotalMs();
-  renderTempoList(); renderTSList();
   if (ES.activeTab === 'note')      import('./notes-render.js').then(m => m.drawN());
   else if (ES.activeTab === 'shape') import('./shape-render.js').then(m => m.drawS());
   else if (ES.activeTab === 'play' && !PS.playActive) {
@@ -66,6 +100,12 @@ export function _afterMetaCommand() {
   }
   scheduleAutoSave();
 }
+
+/**
+ * Back-compat alias: existing callers may import `_afterMetaCommand`.
+ * Newer code should import `_afterAnyCommand` instead.
+ */
+export const _afterMetaCommand = _afterAnyCommand;
 
 // ── Tempo ─────────────────────────────────────────────────
 export function addTempo() {
