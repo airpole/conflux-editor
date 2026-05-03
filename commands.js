@@ -197,3 +197,121 @@ export const DeleteShapeEvents = (events) => {
     ['shapeEvents']
   );
 };
+
+// ---- Notes ----
+// Notes are mutated in place by reference, so command factories store the
+// note objects directly (not snapshots). Each note is identity-stable across
+// undo/redo because nothing reassigns D.notes elements; D.notes itself may be
+// rebuilt by `filter`, but the note objects survive and are pushed back.
+//
+// invalidates ['notes'] flushes overlap/cache state via overlaps.js +
+// scheduler.js dependency declarations.
+
+/** Add one or more notes (refs to fresh objects). */
+export const AddNotes = (notes) => cmd(
+  'AddNotes',
+  () => { for (const n of notes) D.notes.push(n); },
+  () => { D.notes = D.notes.filter(n => !notes.includes(n)); },
+  ['notes']
+);
+
+/** Delete one or more notes by reference. */
+export const DeleteNotes = (notes) => cmd(
+  'DeleteNotes',
+  () => { D.notes = D.notes.filter(n => !notes.includes(n)); },
+  () => { for (const n of notes) D.notes.push(n); },
+  ['notes']
+);
+
+/**
+ * Move multiple notes in tick and/or channel space.
+ * `moves` = [{ note, newStartTick, newChannel }, ...]. Each note's current
+ * startTick/channel is captured at construction so callers can pass the
+ * already-mutated object — but cleanest usage is to call BEFORE mutating
+ * and let dispatch run apply() to perform the change. (Phase B-1 will
+ * adopt the latter pattern; FlipNotes shows how.)
+ */
+export const MoveNotes = (moves) => {
+  const snap = moves.map(m => ({
+    note: m.note,
+    oldStartTick: m.note.startTick,
+    oldChannel: m.note.channel,
+    newStartTick: m.newStartTick,
+    newChannel: m.newChannel
+  }));
+  return cmd(
+    'MoveNotes',
+    () => {
+      for (const s of snap) {
+        s.note.startTick = s.newStartTick;
+        s.note.channel = s.newChannel;
+      }
+    },
+    () => {
+      for (const s of snap) {
+        s.note.startTick = s.oldStartTick;
+        s.note.channel = s.oldChannel;
+      }
+    },
+    ['notes']
+  );
+};
+
+/**
+ * Flip channel of multiple non-wide notes (e.g., MIRROR_CH).
+ * `pairs` = [{ note, newChannel }, ...]. Old channel is captured at
+ * construction time so callers can dispatch BEFORE mutating.
+ */
+export const FlipNotes = (pairs) => {
+  const snap = pairs.map(p => ({
+    note: p.note,
+    oldChannel: p.note.channel,
+    newChannel: p.newChannel
+  }));
+  return cmd(
+    'FlipNotes',
+    () => { for (const s of snap) s.note.channel = s.newChannel; },
+    () => { for (const s of snap) s.note.channel = s.oldChannel; },
+    ['notes']
+  );
+};
+
+/** Change a single note's duration (LN extend/shrink, or LN-replaces-tap). */
+export const SetNoteDuration = (note, newDuration) => {
+  const oldDuration = note.duration || 0;
+  return cmd(
+    'SetNoteDuration',
+    () => { note.duration = newDuration; },
+    () => { note.duration = oldDuration; },
+    ['notes']
+  );
+};
+
+// ---- Text events ----
+
+/** Add one or more text events. */
+export const AddTextEvents = (events) => cmd(
+  'AddTextEvents',
+  () => { for (const e of events) D.textEvents.push(e); },
+  () => { D.textEvents = D.textEvents.filter(e => !events.includes(e)); },
+  ['textEvents']
+);
+
+/** Delete one or more text events by reference. */
+export const DeleteTextEvents = (events) => cmd(
+  'DeleteTextEvents',
+  () => { D.textEvents = D.textEvents.filter(e => !events.includes(e)); },
+  () => { for (const e of events) D.textEvents.push(e); },
+  ['textEvents']
+);
+
+/**
+ * Edit a text event's mutable fields. `oldFields` and `newFields` are
+ * partial objects; only the keys present are touched.
+ */
+export const EditTextEvent = (event, oldFields, newFields) => cmd(
+  'EditTextEvent',
+  () => { Object.assign(event, newFields); },
+  () => { Object.assign(event, oldFields); },
+  ['textEvents']
+);

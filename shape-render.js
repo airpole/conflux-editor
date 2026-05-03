@@ -1,6 +1,14 @@
 // ============================================================
 //  SHAPE-RENDER — drawS (Shape tab editor canvas)
 // ============================================================
+// Phase B-2: tk-info cache, raw-chain boundary strokes, and step
+// horizontal connectors moved to shape-render-helpers (drawS shares
+// these primitives with drawGameFrame, but uses the 'raw' mode and
+// editor-specific blue/red color profiles). What's left here is
+// drawS-specific: bg fill, measure-0 tint, BPM markers, wide LN bodies,
+// line dividers, the 2-pass note rendering, shape-event dots, center
+// dots / pinch stars, pending-arc marker, playback line, mirror axis.
+
 import { $, TPB, CHL, WIDE_BODY, INVALID_COLOR } from './constants.js';
 import { D } from './state.js';
 import { ES } from './editor-state.js';
@@ -10,6 +18,8 @@ import { sp2f, getShape, getLines, getStepTicks, getShapeEventTicks,
 import { computeNoteOverlaps, classifyNotesForZOrder } from './overlaps.js';
 import { resolveNoteColor, headColorAtTick, splitBodyByOverlap, drawNoteHead } from './renderer.js';
 import { drawGrid, STYLE_SHAPE } from './grid-render.js';
+import { makeTkInfoCache, drawShapeBoundary, drawStepConnectors,
+         STYLE_SHAPE_EDITOR, STYLE_SHAPE_EDITOR_STEP } from './shape-render-helpers.js';
 import { posToExtStr } from './utility.js';
 import { sMet } from './shape-tools.js';
 import { getPlayMs } from './audio.js';
@@ -26,18 +36,8 @@ export function drawS() {
   const t2y = tk => gy + gh - (tk - stT) / tpp;
   const p2x = p => gx + sp2f(p) * gw;
 
-  // tk → {sh raw, shN normalized min/max, lines} cache
-  const _tkInfo = new Map();
-  function getTkInfo(tk) {
-    let info = _tkInfo.get(tk);
-    if (!info) {
-      const sh = getShape(tk);
-      const shN = sh.left <= sh.right ? sh : {left: sh.right, right: sh.left};
-      info = {sh, shN, lines: getLines(tk)};
-      _tkInfo.set(tk, info);
-    }
-    return info;
-  }
+  // tk → {sh raw, shN normalized min/max, lines} cache (raw mode keeps both)
+  const getTkInfo = makeTkInfoCache('raw');
 
   // Measure 0 tint (virtual area below tick 0)
   if (stT < 0) {
@@ -85,35 +85,12 @@ export function drawS() {
     rPts.push({x: p2x(sh.right), y, tk, val: sh.right});
   }
 
-  // Draw L (blue) curve
-  if (lPts.length > 1) {
-    ctx.strokeStyle = '#6bb5ff'; ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    lPts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
-    ctx.stroke();
-  }
-  // Draw R (red) curve
-  if (rPts.length > 1) {
-    ctx.strokeStyle = '#ff6b8a'; ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    rPts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
-    ctx.stroke();
-  }
+  // Raw L (blue) and R (red) chain strokes (no fill — chains may visually cross)
+  drawShapeBoundary(ctx, lPts, rPts, STYLE_SHAPE_EDITOR);
 
-  // Step horizontal connectors
-  for (const stk of stepTks) {
-    const y = t2y(stk);
-    if (y < gy - 2 || y > gy + gh + 2) continue;
-    const sB = getShape(stk - 0.0001), sA = getShape(stk + 0.0001);
-    if (Math.abs(sB.left - sA.left) > 0.01) {
-      ctx.strokeStyle = '#6bb5ffaa'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(p2x(sB.left), y); ctx.lineTo(p2x(sA.left), y); ctx.stroke();
-    }
-    if (Math.abs(sB.right - sA.right) > 0.01) {
-      ctx.strokeStyle = '#ff6b8aaa'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(p2x(sB.right), y); ctx.lineTo(p2x(sA.right), y); ctx.stroke();
-    }
-  }
+  // Step horizontal connectors (raw: both chains independently; no gap markers)
+  drawStepConnectors(ctx, stepTks, t2y, p2x, STYLE_SHAPE_EDITOR_STEP, 'raw',
+                     { topY: gy, botY: gy + gh });
 
   // Wide LN bodies (drawn behind line dividers)
   for (const wn of D.notes.filter(n => n.isWide && n.duration > 0)) {

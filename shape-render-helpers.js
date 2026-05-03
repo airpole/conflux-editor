@@ -167,14 +167,31 @@ function _dashedSeg(ctx, x1, y1, x2, y2, stroke, width) {
 
 // ── Pre-canned style profiles ──────────────────────────────
 
-/** drawS-style: blue/red chains with crossing dashes. */
+/**
+ * drawS-style boundary: blue/red strokes only (no fill — drawS shows raw
+ * chains independently, so closing them into a polygon would not match
+ * the editor's intent of letting either chain be visually L or R).
+ */
 export const STYLE_SHAPE_EDITOR = {
-  fill: '#12121266',
+  fill: null,
   leftStroke: '#6bb5ff',
   rightStroke: '#ff6b8a',
-  lineWidth: 2,
-  gapStroke: '#ffffff44',
-  gapWidth: 1.2,
+  lineWidth: 1.5,
+  gapStroke: null,
+  gapWidth: null,
+};
+
+/**
+ * drawS-style step connectors: matching boundary hues with alpha so the
+ * step segments read as a related-but-secondary visual layer. No gap
+ * marker — drawS treats raw chain crossings as expected, not warnings.
+ */
+export const STYLE_SHAPE_EDITOR_STEP = {
+  leftStroke: '#6bb5ffaa',
+  rightStroke: '#ff6b8aaa',
+  lineWidth: 1.5,
+  gapStroke: null,
+  gapWidth: null,
 };
 
 /** drawGameFrame-style: subtle white boundaries, normalized. */
