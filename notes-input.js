@@ -1,13 +1,20 @@
 // ============================================================
 //  NOTES-INPUT — pointer-based note editing on nCv
 // ============================================================
+// Phase B-1: tap-add, LN-add, quick-LN long-press, drag-end commit, and
+// del-tool tap have been migrated from saveHist('n') to commands.js
+// dispatch. Drag-move still mutates notes in place during the drag for
+// responsive feedback; on drag-end, a single MoveNotes command captures
+// the old→new transitions for undo. LN-replaces-tap uses ReplaceNotes
+// so the displaced tap and the new LN form a single undo unit.
+
 import { $, TPB, CHL, OVERLAP_CHANNELS } from './constants.js';
 import { D } from './state.js';
 import { ES } from './editor-state.js';
 import { snap, line4ToChannel } from './utility.js';
 import { tickToMeasure, getMinTick } from './timing.js';
 import { invalidateNoteOverlaps } from './overlaps.js';
-import { saveHist } from './history.js';
+import { dispatch, AddNotes, DeleteNotes, MoveNotes, ReplaceNotes } from './commands.js';
 import { nMet, drawN } from './notes-render.js';
 import { cancelLN, cancelTE, shiftSelectedByDelta } from './notes-tools.js';
 import { findTextEvtAt, showTePicker, teEdit, teNewRange } from './text-events.js';
@@ -21,6 +28,7 @@ let dragMove = false;
 let dragMoveTk0 = 0;
 let dragMoveX0 = 0;
 let dragMoveColDelta = 0;
+let dragMoveOriginals = null;  // [{note, oldStartTick, oldChannel}, ...] captured at drag start
 let longPressTimer = null;
 let longPressFired = false;
 
@@ -50,26 +58,28 @@ function onDown(e) {
       const snp = snap(clickTk, ES.nGD);
       const isW = ES.nTool === 'w';
       let ch_n = isW ? 0 : line4ToChannel(ci, isW);
+      const removed = [];
       if (!isW) {
         const maxN = OVERLAP_CHANNELS.includes(ch_n) ? 2 : 1;
         const atPos = D.notes.filter(n => n.channel === ch_n && n.startTick === snp && !n.isWide);
         if (atPos.length >= maxN) {
           const existTap = atPos.find(n => !n.duration);
-          if (existTap) D.notes = D.notes.filter(n => n !== existTap);
+          if (existTap) removed.push(existTap);
           else return;
         }
-        const atPos2 = D.notes.filter(n => n.channel === ch_n && n.startTick === snp && !n.isWide);
-        if (atPos2.length >= maxN) return;
-        const holdCount = atPos2.filter(n => n.duration > 0).length;
+        // Re-check capacity excluding the tap we plan to displace.
+        const remaining = atPos.filter(n => !removed.includes(n));
+        if (remaining.length >= maxN) return;
+        const holdCount = remaining.filter(n => n.duration > 0).length;
         if (holdCount >= maxN) return;
       } else {
         const existWide = D.notes.find(n => n.startTick === snp && n.channel === ch_n && n.isWide === isW && !n.duration);
-        if (existWide) D.notes = D.notes.filter(n => n !== existWide);
+        if (existWide) removed.push(existWide);
         if (D.notes.find(n => n.startTick === snp && n.channel === ch_n && n.isWide === isW && n.duration > 0)) return;
       }
-      D.notes.push({channel: ch_n, startTick: snp, duration: ES.savedLNDur, isWide: isW});
+      const newNote = {channel: ch_n, startTick: snp, duration: ES.savedLNDur, isWide: isW};
       longPressFired = true;
-      saveHist('n'); drawN();
+      dispatch(ReplaceNotes(removed, [newNote]));
     }, 300);
   }
 
@@ -91,6 +101,12 @@ function onDown(e) {
               dragMoveTk0 = snap(clickTk, ES.nGD);
               dragMoveX0 = x;
               dragMoveColDelta = 0;
+              // Capture originals for MoveNotes dispatch on drag-end.
+              dragMoveOriginals = [...ES.selectedNotes].map(n => ({
+                note: n,
+                oldStartTick: n.startTick,
+                oldChannel: n.channel
+              }));
               return;
             }
           }
@@ -174,8 +190,39 @@ function onMove(e) {
 function onUp(e) {
   cancelLongPress();
   if (longPressFired) { longPressFired = false; return; }
-  if (dragMove && moved) { saveHist('n'); dragMove = false; drawN(); return; }
+  if (dragMove && moved) {
+    // Build entries from captured originals, comparing to current state.
+    if (dragMoveOriginals && dragMoveOriginals.length) {
+      const entries = [];
+      for (const o of dragMoveOriginals) {
+        if (o.note.startTick !== o.oldStartTick || o.note.channel !== o.oldChannel) {
+          entries.push({
+            note: o.note,
+            oldStartTick: o.oldStartTick,
+            oldChannel: o.oldChannel,
+            newStartTick: o.note.startTick,
+            newChannel: o.note.channel
+          });
+        }
+      }
+      if (entries.length) {
+        // Notes already hold the new values from in-flight drag mutation.
+        // MoveNotes.apply() re-applies them (idempotent); the value of the
+        // command is in capturing both states for a coherent undo.
+        dispatch(MoveNotes(entries));
+      } else {
+        // No net change — just redraw to clear any drag visuals.
+        drawN();
+      }
+    } else {
+      drawN();
+    }
+    dragMove = false;
+    dragMoveOriginals = null;
+    return;
+  }
   dragMove = false;
+  dragMoveOriginals = null;
   if (dragSel && dragRect && moved) {
     updateDragSelection();
     dragSel = false; dragRect = null;
@@ -332,8 +379,8 @@ export function handleNTap(e) {
         if (tapCount >= maxN) return;
       }
     }
-    D.notes.push({channel: ch_n, startTick: snp, duration: 0, isWide: isW});
-    saveHist('n'); drawN();
+    const newNote = {channel: ch_n, startTick: snp, duration: 0, isWide: isW};
+    dispatch(AddNotes([newNote]));
   } else if (ES.nTool === 'ln' || ES.nTool === 'wl') {
     const isW = ES.nTool === 'wl';
     if (isW) ch_n = 0;
@@ -342,20 +389,22 @@ export function handleNTap(e) {
       const startTk = Math.min(ES.pendLN.startTick, snp), endTk = Math.max(ES.pendLN.startTick, snp);
       if (endTk <= startTk) { cancelLN(); return; }
       const dur = endTk - startTk;
+      const removed = [];
       if (!isW) {
         const maxN = OVERLAP_CHANNELS.includes(ch_n) ? 2 : 1;
         const atPos = D.notes.filter(n => n.channel === ch_n && n.startTick === startTk && !n.isWide);
         if (atPos.length >= maxN) {
           const existTap = atPos.find(n => !n.duration);
-          if (existTap) D.notes = D.notes.filter(n => n !== existTap);
+          if (existTap) removed.push(existTap);
           else { cancelLN(); return; }
         }
-        const atPos2 = D.notes.filter(n => n.channel === ch_n && n.startTick === startTk && !n.isWide);
-        if (atPos2.length >= maxN) { cancelLN(); return; }
+        const remaining = atPos.filter(n => !removed.includes(n));
+        if (remaining.length >= maxN) { cancelLN(); return; }
       }
-      D.notes.push({channel: ch_n, startTick: startTk, duration: dur, isWide: isW});
+      const newNote = {channel: ch_n, startTick: startTk, duration: dur, isWide: isW};
       ES.savedLNDur = dur;
-      saveHist('n'); cancelLN(); drawN();
+      cancelLN();
+      dispatch(ReplaceNotes(removed, [newNote]));
     } else {
       if (isW) {
         if (D.notes.find(n => n.startTick === snp && n.isWide)) return;
@@ -370,9 +419,8 @@ export function handleNTap(e) {
   } else if (ES.nTool === 'del') {
     const best = findNoteAt(clickTk, ci, ch_n, tpp);
     if (best) {
-      D.notes = D.notes.filter(n => n !== best);
       ES.selectedNotes.delete(best);
-      saveHist('n'); drawN();
+      dispatch(DeleteNotes([best]));
     }
   }
 }

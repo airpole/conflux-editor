@@ -6,7 +6,7 @@ import { ES } from './editor-state.js';
 import { PS } from './play-state.js';
 import { toast } from './utility.js';
 import { undo, redo } from './history.js';
-import { saveHist } from './history.js';
+import { dispatch, DeleteNotes } from './commands.js';
 import { setNT, nZ, doCopy, doPaste, doFlipSelected, cancelLN, cancelTE } from './notes-tools.js';
 import { setST, sZ, pickEase, doShapeCopy, doShapePaste, doShapeFlipSelected,
          doShapeSelectionDelete } from './shape-tools.js';
@@ -103,10 +103,10 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
     if (ES.activeTab === 'note' && ES.selectedNotes.size > 0) {
-      const count = ES.selectedNotes.size;
-      D.notes = D.notes.filter(n => !ES.selectedNotes.has(n));
+      const toDel = [...ES.selectedNotes];
+      const count = toDel.length;
       ES.selectedNotes.clear();
-      saveHist('n'); drawN();
+      dispatch(DeleteNotes(toDel));
       toast(`${count}개 노트 삭제`);
     } else if (ES.activeTab === 'shape' && ES.selectedShapeEvts.size > 0) {
       doShapeSelectionDelete();

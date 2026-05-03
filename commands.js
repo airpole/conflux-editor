@@ -224,38 +224,32 @@ export const DeleteNotes = (notes) => cmd(
 );
 
 /**
- * Move multiple notes in tick and/or channel space.
- * `moves` = [{ note, newStartTick, newChannel }, ...]. Each note's current
- * startTick/channel is captured at construction so callers can pass the
- * already-mutated object — but cleanest usage is to call BEFORE mutating
- * and let dispatch run apply() to perform the change. (Phase B-1 will
- * adopt the latter pattern; FlipNotes shows how.)
+ * Move multiple notes in tick and/or channel space. Each entry carries
+ * BOTH the old and new state explicitly, so the caller is responsible
+ * for capturing originals before the drag starts. This avoids the
+ * "ambiguous when to capture" problem with mutate-during-drag UIs:
+ * by the time drag-end fires, the notes already hold the new values.
+ *
+ * `entries` = [{ note, oldStartTick, oldChannel, newStartTick, newChannel }, ...].
+ * apply() forces the new state; undo() forces the old state. Both are
+ * idempotent — apply after apply is a no-op since the values match.
  */
-export const MoveNotes = (moves) => {
-  const snap = moves.map(m => ({
-    note: m.note,
-    oldStartTick: m.note.startTick,
-    oldChannel: m.note.channel,
-    newStartTick: m.newStartTick,
-    newChannel: m.newChannel
-  }));
-  return cmd(
-    'MoveNotes',
-    () => {
-      for (const s of snap) {
-        s.note.startTick = s.newStartTick;
-        s.note.channel = s.newChannel;
-      }
-    },
-    () => {
-      for (const s of snap) {
-        s.note.startTick = s.oldStartTick;
-        s.note.channel = s.oldChannel;
-      }
-    },
-    ['notes']
-  );
-};
+export const MoveNotes = (entries) => cmd(
+  'MoveNotes',
+  () => {
+    for (const e of entries) {
+      e.note.startTick = e.newStartTick;
+      e.note.channel = e.newChannel;
+    }
+  },
+  () => {
+    for (const e of entries) {
+      e.note.startTick = e.oldStartTick;
+      e.note.channel = e.oldChannel;
+    }
+  },
+  ['notes']
+);
 
 /**
  * Flip channel of multiple non-wide notes (e.g., MIRROR_CH).
@@ -286,6 +280,28 @@ export const SetNoteDuration = (note, newDuration) => {
     ['notes']
   );
 };
+
+/**
+ * Atomic remove-then-add. Used when a new note displaces an existing one
+ * (e.g. LN-replaces-tap workflow where dropping an LN at the same tick/
+ * channel as a tap deletes the tap first, then inserts the LN).
+ * Single command so undo restores both states in one step.
+ *
+ * `removed` = note refs to delete (may be empty)
+ * `added`   = note refs to insert (typically one fresh object)
+ */
+export const ReplaceNotes = (removed, added) => cmd(
+  'ReplaceNotes',
+  () => {
+    if (removed.length) D.notes = D.notes.filter(n => !removed.includes(n));
+    for (const n of added) D.notes.push(n);
+  },
+  () => {
+    D.notes = D.notes.filter(n => !added.includes(n));
+    for (const n of removed) D.notes.push(n);
+  },
+  ['notes']
+);
 
 // ---- Text events ----
 

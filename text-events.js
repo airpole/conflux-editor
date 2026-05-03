@@ -1,12 +1,19 @@
 // ============================================================
 //  TEXT-EVENTS — modal CRUD + sidebar list + multi-select picker
 // ============================================================
+// Phase B-1: teSave/teDelete migrated to commands.js dispatch.
+// Edit branch uses EditTextEvent (Object.assign in-place) instead of
+// the old `D.textEvents[idx] = evt` whole-object replace, so existing
+// references (e.g. ES.editingTextEvt) stay valid across edits.
+// onDispatch in main.js dual-writes saveHist('n') for undo/redo
+// continuity while migration is incomplete elsewhere.
+
 import { $, TPB, TEXT_COLOR } from './constants.js';
 import { D } from './state.js';
 import { ES } from './editor-state.js';
 import { tickToMeasure, measureToTick } from './timing.js';
 import { toast } from './utility.js';
-import { saveHist } from './history.js';
+import { dispatch, AddTextEvents, DeleteTextEvents, EditTextEvent } from './commands.js';
 import { showMod, closeMod } from './file-manager.js';
 
 export function teNew(tick, defaultPos) {
@@ -57,7 +64,7 @@ export function teSave() {
   const endTk   = parseMeasureInput($('teEnd').value);
   if (startTk === null || endTk === null) { toast('Invalid tick format'); return; }
   if (endTk <= startTk) { toast('End must be after start'); return; }
-  const evt = {
+  const newFields = {
     startTick: startTk,
     duration:  endTk - startTk,
     content,
@@ -66,26 +73,34 @@ export function teSave() {
     mode:       $('teMode').value
   };
   if (ES.editingTextEvt) {
-    const idx = D.textEvents.indexOf(ES.editingTextEvt);
-    if (idx >= 0) D.textEvents[idx] = evt;
+    // In-place edit: capture old field values for undo.
+    const target = ES.editingTextEvt;
+    const oldFields = {};
+    for (const k of Object.keys(newFields)) oldFields[k] = target[k];
+    // Skip dispatch if nothing actually changed (avoids stack pollution).
+    let changed = false;
+    for (const k of Object.keys(newFields)) {
+      if (oldFields[k] !== newFields[k]) { changed = true; break; }
+    }
+    ES.editingTextEvt = null;
+    closeMod('txtMod');
+    if (changed) dispatch(EditTextEvent(target, oldFields, newFields));
   } else {
-    D.textEvents.push(evt);
+    const evt = { ...newFields };
+    ES.editingTextEvt = null;
+    closeMod('txtMod');
+    dispatch(AddTextEvents([evt]));
   }
-  ES.editingTextEvt = null;
-  closeMod('txtMod');
-  saveHist('n');
-  import('./notes-render.js').then(m => m.drawN());
   renderTeList();
   toast('Text event saved');
 }
 
 export function teDelete() {
   if (!ES.editingTextEvt) return;
-  D.textEvents = D.textEvents.filter(e => e !== ES.editingTextEvt);
+  const target = ES.editingTextEvt;
   ES.editingTextEvt = null;
   closeMod('txtMod');
-  saveHist('n');
-  import('./notes-render.js').then(m => m.drawN());
+  dispatch(DeleteTextEvents([target]));
   renderTeList();
   toast('Text event deleted');
 }
