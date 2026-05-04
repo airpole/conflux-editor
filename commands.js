@@ -284,6 +284,49 @@ export const MutateShapeEvents = (events, oldSnaps, newSnaps) => cmd(
   ['shapeEvents']
 );
 
+/**
+ * Apply a sequence of shape-event ops as a single undo unit. Used by
+ * the L/R/C/P/Arc add tools where one user tap may insert two events
+ * (mirror) or, in degenerate cases, modify existing events at the same
+ * tick rather than insert. addShapeEvt() in shape-tools.js produces the
+ * ops; this factory dispatches them atomically.
+ *
+ * Op shape:
+ *   { kind: 'add', event }
+ *     - apply: D.shapeEvents.push(event)
+ *     - undo:  D.shapeEvents = D.shapeEvents.filter(e => e !== event)
+ *   { kind: 'set', event, oldFields, newFields }
+ *     - apply: Object.assign(event, newFields)
+ *     - undo:  Object.assign(event, oldFields)
+ *
+ * Both branches normalize both chains afterwards. Undo iterates ops in
+ * reverse so any 'set' op that touched the result of an 'add' is reverted
+ * before the 'add' itself disappears (not currently produced by
+ * addShapeEvt, but the ordering keeps the invariant for future ops).
+ */
+export const ApplyShapeOps = (ops) => cmd(
+  'ApplyShapeOps',
+  () => {
+    for (const op of ops) {
+      if (op.kind === 'add') D.shapeEvents.push(op.event);
+      else if (op.kind === 'set') Object.assign(op.event, op.newFields);
+    }
+    _normalizeBothChains();
+  },
+  () => {
+    for (let i = ops.length - 1; i >= 0; i--) {
+      const op = ops[i];
+      if (op.kind === 'add') {
+        D.shapeEvents = D.shapeEvents.filter(e => e !== op.event);
+      } else if (op.kind === 'set') {
+        Object.assign(op.event, op.oldFields);
+      }
+    }
+    _normalizeBothChains();
+  },
+  ['shapeEvents']
+);
+
 // ---- Line events ----
 
 /**

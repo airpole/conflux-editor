@@ -3,13 +3,13 @@
 // ============================================================
 // Phase B-1 (v15): drag-move-sel commit, dot drag-end, init pos prompt,
 // del tool tap, and line tool tap migrated from saveHist('s') to
-// commands.js dispatch. Drag callers pre-mutate during live feedback
-// then dispatch a MutateShapeEvents on drag-end with captured originals.
+// commands.js dispatch.
 //
-// Phase B-1 (v16, planned): Arc tool tap (L303) and L/R/C/P tool tap
-// (L339) still call saveHist('s') directly because addShapeEvt mutates
-// in-place inside shape-tools.js. Once addShapeEvt is refactored to
-// produce dispatchable ops, those two sites migrate too.
+// Phase B-1 (v16): Arc tool tap and L/R/C/P tool tap migrated. Each tap
+// (with optional mirror) gathers ops from addShapeEvt() — which now
+// returns op descriptions instead of mutating in place — and dispatches
+// them as one ApplyShapeOps command. The whole shape-input module no
+// longer calls saveHist() directly.
 
 import { $, sPosSnapVals } from './constants.js';
 import { D } from './state.js';
@@ -19,8 +19,8 @@ import { getMinTick } from './timing.js';
 import { sp2f, getShape, getLines, normalizeShapeChain,
          invalidateShapeCache,
          resolveArcEasing } from './shape.js';
-import { saveHist } from './history.js';
-import { dispatch, MutateShapeEvents, DeleteShapeEvents, AddLineEvent } from './commands.js';
+import { dispatch, MutateShapeEvents, DeleteShapeEvents,
+         AddLineEvent, ApplyShapeOps } from './commands.js';
 import { sMet, findShapeEvtAt, addShapeEvt } from './shape-tools.js';
 import { drawS } from './shape-render.js';
 import { cancelArc } from './edit-options.js';
@@ -386,24 +386,25 @@ export function handleSTap(e) {
     if (easing === 'Arc' && ES.sTool !== 'C' && ES.sTool !== 'P') {
       cancelArc();
       const autoEasing = resolveArcEasing(isR, snp);
-      addShapeEvt(snp, snpPos, isR, autoEasing);
+      const ops = [addShapeEvt(snp, snpPos, isR, autoEasing)];
       if (ES.sMirror) {
         const mirPos = snapPos(Math.max(0, Math.min(64, 2 * shapeCenterBefore - snpPos)));
-        addShapeEvt(snp, mirPos, !isR, autoEasing);
+        ops.push(addShapeEvt(snp, mirPos, !isR, autoEasing));
       }
-      saveHist('s'); drawS();
+      dispatch(ApplyShapeOps(ops));
       toast(`Arc: ${autoEasing === 'Out-Sine' ? 'OutS' : 'InS'}`);
       return;
     }
 
     cancelArc();
+    const ops = [];
     if (ES.sTool === 'P') {
       let easingL = $('easeS').value;
       let easingR = $('easeRS').value;
       if (easingL === 'Arc') easingL = resolveArcEasing(false, snp);
       if (easingR === 'Arc') easingR = resolveArcEasing(true, snp);
-      addShapeEvt(snp, snpPos, false, easingL);
-      addShapeEvt(snp, snpPos, true, easingR);
+      ops.push(addShapeEvt(snp, snpPos, false, easingL));
+      ops.push(addShapeEvt(snp, snpPos, true, easingR));
     } else if (ES.sTool === 'C') {
       let cEasing = easing;
       if (easing === 'Arc') {
@@ -418,16 +419,16 @@ export function handleSTap(e) {
       const newL = Math.max(0, Math.min(64 - curWidth,
         Math.round(rawL / sPosSnapVals[ES.sPosSnapLevel]) * sPosSnapVals[ES.sPosSnapLevel]));
       const newR = Math.round(Math.max(curWidth, Math.min(64, newL + curWidth)));
-      addShapeEvt(snp, newL, false, cEasing);
-      addShapeEvt(snp, newR, true, cEasing);
+      ops.push(addShapeEvt(snp, newL, false, cEasing));
+      ops.push(addShapeEvt(snp, newR, true, cEasing));
     } else {
-      addShapeEvt(snp, snpPos, isR, easing);
+      ops.push(addShapeEvt(snp, snpPos, isR, easing));
       if (ES.sMirror) {
         const mirPos = snapPos(Math.max(0, Math.min(64, 2 * shapeCenterBefore - snpPos)));
-        addShapeEvt(snp, mirPos, !isR, easing);
+        ops.push(addShapeEvt(snp, mirPos, !isR, easing));
       }
     }
-    saveHist('s'); drawS();
+    dispatch(ApplyShapeOps(ops));
   }
   if (ES.sTool === 'line') {
     cancelArc();

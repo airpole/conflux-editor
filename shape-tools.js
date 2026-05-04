@@ -10,7 +10,7 @@
 import { $, TPB } from './constants.js';
 import { D } from './state.js';
 import { ES } from './editor-state.js';
-import { sp2f, normalizeShapeChain } from './shape.js';
+import { sp2f } from './shape.js';
 import { snap, toast } from './utility.js';
 import { cancelArc } from './edit-options.js';
 import { dispatch, AddShapeEvents, DeleteShapeEvents, FlipShapeEvents } from './commands.js';
@@ -153,8 +153,24 @@ export function doShapeFlipSelected() {
 }
 
 /**
- * Phase 3-2/3-3: Add a shape event with tap-on-existing-tick semantics.
- * (See main.js v20 for the original commentary; behavior preserved.)
+ * Phase 3-2/3-3: Compute the op describing how a tap on (tick, pos) for
+ * the given (isRight, easing) should mutate D.shapeEvents.
+ *
+ * Returns one of:
+ *   { kind: 'add', event: {startTick, duration, isRight, targetPos, easing} }
+ *     — when no existing event sits on the same chain at this tick, OR
+ *       there is one but its targetPos differs from `pos`.
+ *   { kind: 'set', event: existRef, oldFields, newFields }
+ *     — when one existing event at the same tick has effectively the same
+ *       targetPos (re-apply only changes its easing), OR when multiple
+ *       events stack at the same tick and we update the last one's
+ *       targetPos+easing.
+ *
+ * This function does NOT mutate D.shapeEvents and does NOT normalize.
+ * The caller (Arc / L / R / C / P tap handlers in shape-input.js) batches
+ * one or more ops into a single `dispatch(ApplyShapeOps(ops))` so the
+ * whole tap-with-mirror is one undo unit, and the factory normalizes
+ * both chains once at the end.
  */
 export function addShapeEvt(tick, pos, isRight, easing) {
   const sameTickSameSide = D.shapeEvents.filter(e => {
@@ -162,18 +178,26 @@ export function addShapeEvt(tick, pos, isRight, easing) {
     return Math.abs(dest - tick) < 1 && e.isRight === isRight && e.easing !== null;
   });
   if (sameTickSameSide.length === 0) {
-    D.shapeEvents.push({startTick: 0, duration: tick, isRight, targetPos: pos, easing});
+    return { kind: 'add', event: {startTick: 0, duration: tick, isRight, targetPos: pos, easing} };
   } else if (sameTickSameSide.length === 1) {
     const exist = sameTickSameSide[0];
     if (Math.abs(exist.targetPos - pos) < 0.01) {
-      exist.easing = easing;
+      return {
+        kind: 'set',
+        event: exist,
+        oldFields: { easing: exist.easing },
+        newFields: { easing }
+      };
     } else {
-      D.shapeEvents.push({startTick: 0, duration: tick, isRight, targetPos: pos, easing});
+      return { kind: 'add', event: {startTick: 0, duration: tick, isRight, targetPos: pos, easing} };
     }
   } else {
     const last = sameTickSameSide[sameTickSameSide.length - 1];
-    last.targetPos = pos;
-    last.easing = easing;
+    return {
+      kind: 'set',
+      event: last,
+      oldFields: { targetPos: last.targetPos, easing: last.easing },
+      newFields: { targetPos: pos, easing }
+    };
   }
-  normalizeShapeChain(isRight);
 }
