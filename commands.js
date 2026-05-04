@@ -253,6 +253,51 @@ export const FlipShapeEvents = (pairs) => cmd(
   ['shapeEvents']
 );
 
+/**
+ * In-place edit one or more shape events. Each `oldSnaps[i]` and
+ * `newSnaps[i]` is a partial object — only listed fields are touched.
+ * Both branches normalize both chains so dependent events return to the
+ * right ticks. Used for drag-move-end commits, dot drags, and init-pos
+ * prompt edits — anything that mutates existing shape event fields.
+ *
+ * Caller responsibilities:
+ * - Capture old field values BEFORE the user-facing mutation begins
+ *   (e.g. on drag-start) so the snapshot is accurate.
+ * - Both arrays must have the same length and reference the same events.
+ * - oldSnaps[i] and newSnaps[i] should declare the same keys (so apply
+ *   and undo are symmetric).
+ *
+ * Idempotency: drag-move callers pre-mutate the events for live feedback,
+ * then dispatch on drag-end. apply() re-asserts the new values (no-op on
+ * unchanged fields), and undo() restores the old snapshot.
+ */
+export const MutateShapeEvents = (events, oldSnaps, newSnaps) => cmd(
+  'MutateShapeEvents',
+  () => {
+    for (let i = 0; i < events.length; i++) Object.assign(events[i], newSnaps[i]);
+    _normalizeBothChains();
+  },
+  () => {
+    for (let i = 0; i < events.length; i++) Object.assign(events[i], oldSnaps[i]);
+    _normalizeBothChains();
+  },
+  ['shapeEvents']
+);
+
+// ---- Line events ----
+
+/**
+ * Add a single line-distribution event. Line events are independent of
+ * shape chains (no normalize), but they have their own cache (invalidated
+ * via the command's `invalidates: ['lineEvents']` declaration).
+ */
+export const AddLineEvent = (evt) => cmd(
+  'AddLineEvent',
+  () => { D.lineEvents.push(evt); },
+  () => { D.lineEvents = D.lineEvents.filter(e => e !== evt); },
+  ['lineEvents']
+);
+
 // ---- Notes ----
 // Notes are mutated in place by reference, so command factories store the
 // note objects directly (not snapshots). Each note is identity-stable across

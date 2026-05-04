@@ -1,15 +1,26 @@
 // ============================================================
 //  SHAPE-INPUT — pointer-based shape editing on sCv
 // ============================================================
+// Phase B-1 (v15): drag-move-sel commit, dot drag-end, init pos prompt,
+// del tool tap, and line tool tap migrated from saveHist('s') to
+// commands.js dispatch. Drag callers pre-mutate during live feedback
+// then dispatch a MutateShapeEvents on drag-end with captured originals.
+//
+// Phase B-1 (v16, planned): Arc tool tap (L303) and L/R/C/P tool tap
+// (L339) still call saveHist('s') directly because addShapeEvt mutates
+// in-place inside shape-tools.js. Once addShapeEvt is refactored to
+// produce dispatchable ops, those two sites migrate too.
+
 import { $, sPosSnapVals } from './constants.js';
 import { D } from './state.js';
 import { ES } from './editor-state.js';
 import { snap, snapPos, posToExtStr, toast } from './utility.js';
 import { getMinTick } from './timing.js';
 import { sp2f, getShape, getLines, normalizeShapeChain,
-         invalidateShapeCache, invalidateLinesCache,
+         invalidateShapeCache,
          resolveArcEasing } from './shape.js';
 import { saveHist } from './history.js';
+import { dispatch, MutateShapeEvents, DeleteShapeEvents, AddLineEvent } from './commands.js';
 import { sMet, findShapeEvtAt, addShapeEvt } from './shape-tools.js';
 import { drawS } from './shape-render.js';
 import { cancelArc } from './edit-options.js';
@@ -18,8 +29,10 @@ import { cancelArc } from './edit-options.js';
 let ty0, sc0, moved, tx0;
 let dragDot = null;
 let dragX0 = 0;
+let dragDotOriginals = null;  // [{event, oldTargetPos}, ...] for dot drag
 let dragSel = false, dragSelX0 = 0, dragSelY0 = 0, dragSelRect = null;
 let dragMoveSel = false, dragMoveDestTk0 = 0, dragMovePos0 = 0;
+let dragMoveSelOriginals = null;  // [{event, oldStartTick, oldDuration, oldTargetPos, oldIsRight}, ...]
 
 function findDotAt(x, y, met) {
   const {gw, gh, gx, gy, tpp} = met;
@@ -92,6 +105,14 @@ function onDown(e) {
           const clickTk = ES.sScr + (gy + gh - y) * tpp;
           dragMoveDestTk0 = snap(clickTk, ES.sGD);
           dragMovePos0 = snapPos(((x - gx) / gw) * 64);
+          // Capture originals for MutateShapeEvents on drag-end.
+          dragMoveSelOriginals = [...ES.selectedShapeEvts].map(ev => ({
+            event: ev,
+            oldStartTick: ev.startTick,
+            oldDuration:  ev.duration,
+            oldTargetPos: ev.targetPos,
+            oldIsRight:   ev.isRight
+          }));
           return;
         }
       }
@@ -102,7 +123,25 @@ function onDown(e) {
 
   if (x >= gx && x <= gx + gw && y >= gy && y <= gy + gh) {
     const hit = findDotAt(x, y, met);
-    if (hit) { dragDot = hit; dragX0 = x; }
+    if (hit) {
+      dragDot = hit;
+      dragX0 = x;
+      // Capture originals — which events the drag will mutate depends on type.
+      dragDotOriginals = [];
+      const captureIdx = (i) => {
+        const ev = D.shapeEvents[i];
+        dragDotOriginals.push({ event: ev, oldTargetPos: ev.targetPos });
+      };
+      if (hit.type === 'dot' || hit.type === 'init') {
+        captureIdx(hit.evtIdx);
+      } else if (hit.type === 'center') {
+        if (hit.pair.L !== undefined) captureIdx(hit.pair.L);
+        if (hit.pair.R !== undefined) captureIdx(hit.pair.R);
+      } else if (hit.type === 'pinch') {
+        if (hit.tickEvts.L !== undefined) captureIdx(hit.tickEvts.L);
+        if (hit.tickEvts.R !== undefined) captureIdx(hit.tickEvts.R);
+      }
+    }
   }
 }
 
@@ -185,17 +224,65 @@ function onMove(e) {
 
 function onUp(e) {
   if (dragMoveSel && moved) {
-    normalizeShapeChain(false); normalizeShapeChain(true);
-    saveHist('s'); drawS(); dragMoveSel = false; return;
+    // Build MutateShapeEvents from captured originals.
+    if (dragMoveSelOriginals && dragMoveSelOriginals.length) {
+      const events  = dragMoveSelOriginals.map(o => o.event);
+      const oldSnaps = dragMoveSelOriginals.map(o => ({
+        startTick: o.oldStartTick,
+        duration:  o.oldDuration,
+        targetPos: o.oldTargetPos,
+        isRight:   o.oldIsRight
+      }));
+      const newSnaps = events.map(ev => ({
+        startTick: ev.startTick,
+        duration:  ev.duration,
+        targetPos: ev.targetPos,
+        isRight:   ev.isRight
+      }));
+      // Skip dispatch if no actual change (e.g. drag returned to origin).
+      let changed = false;
+      for (let i = 0; i < events.length; i++) {
+        for (const k of Object.keys(newSnaps[i])) {
+          if (oldSnaps[i][k] !== newSnaps[i][k]) { changed = true; break; }
+        }
+        if (changed) break;
+      }
+      if (changed) dispatch(MutateShapeEvents(events, oldSnaps, newSnaps));
+      else drawS();  // no-op drag — just clear visual leftovers
+    } else {
+      drawS();
+    }
+    dragMoveSel = false;
+    dragMoveSelOriginals = null;
+    return;
   }
   dragMoveSel = false;
+  dragMoveSelOriginals = null;
   if (dragSel && dragSelRect && moved) {
     updateShapeDragSelection();
     dragSel = false; dragSelRect = null; drawS(); return;
   }
   dragSel = false; dragSelRect = null;
-  if (dragDot && moved) { saveHist('s'); drawS(); dragDot = null; return; }
+  if (dragDot && moved) {
+    if (dragDotOriginals && dragDotOriginals.length) {
+      const events  = dragDotOriginals.map(o => o.event);
+      const oldSnaps = dragDotOriginals.map(o => ({ targetPos: o.oldTargetPos }));
+      const newSnaps = events.map(ev => ({ targetPos: ev.targetPos }));
+      let changed = false;
+      for (let i = 0; i < events.length; i++) {
+        if (oldSnaps[i].targetPos !== newSnaps[i].targetPos) { changed = true; break; }
+      }
+      if (changed) dispatch(MutateShapeEvents(events, oldSnaps, newSnaps));
+      else drawS();
+    } else {
+      drawS();
+    }
+    dragDot = null;
+    dragDotOriginals = null;
+    return;
+  }
   dragDot = null;
+  dragDotOriginals = null;
   if (!moved) handleSTap(e);
 }
 
@@ -272,16 +359,20 @@ export function handleSTap(e) {
         const val = prompt(`Move init ${ev.isRight ? 'R' : 'L'} position (-8~8):`, curExt);
         if (val !== null && !isNaN(+val)) {
           const newPos = Math.max(0, Math.min(64, Math.round((+val + 8) * 4)));
-          ev.targetPos = newPos;
-          saveHist('s'); drawS();
+          if (newPos !== ev.targetPos) {
+            dispatch(MutateShapeEvents(
+              [ev],
+              [{ targetPos: ev.targetPos }],
+              [{ targetPos: newPos }]
+            ));
+          }
           toast(`Init ${ev.isRight ? 'R' : 'L'} → ${posToExtStr(newPos)}`);
         }
         return;
       }
       ES.selectedShapeEvts.delete(ev);
-      D.shapeEvents.splice(best, 1);
-      normalizeShapeChain(false); normalizeShapeChain(true);
-      saveHist('s'); drawS(); toast('Shape event deleted');
+      dispatch(DeleteShapeEvents([ev]));
+      toast('Shape event deleted');
     }
     return;
   }
@@ -345,11 +436,10 @@ export function handleSTap(e) {
     if (r) {
       const a = r.split(',').map(Number);
       if (a.length === 4 && a.every(v => !isNaN(v))) {
-        D.lineEvents.push({startTick: snp, duration: 0, lines: a});
-        invalidateLinesCache();
-        saveHist('s');
+        dispatch(AddLineEvent({startTick: snp, duration: 0, lines: a}));
+      } else {
+        drawS();
       }
-      drawS();
     }
   }
 }
