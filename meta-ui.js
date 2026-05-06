@@ -56,30 +56,14 @@ export function renderTSList() {
 }
 
 /**
- * UI side-effects after any dispatched command. Wired via onDispatch.
+ * UI side-effects after any dispatched command. Wired via onDispatch in
+ * main.js. Fires for fresh dispatch and for undo/redo replays.
+ *
  * - Inspects cmd.invalidates to choose scope-specific work:
  *     tempo/timeSignatures → re-render Meta tab tempo + TS lists
- *     notes/textEvents     → push a saveHist('n') snapshot (apply only)
- *     shapeEvents/lineEvents → push a saveHist('s') snapshot (apply only)
+ *   (No more saveHist dual-write — v17 removed the legacy snapshot system
+ *    once all user-action sites finished migrating to dispatch().)
  * - Common: updateTotalMs, redraw active tab, scheduleAutoSave.
- *
- * Phase B-1 dual-write rationale: while migration is in progress, some
- * sites still call saveHist('n')/saveHist('s') directly (shape-input.js,
- * baseline init). To keep undo/redo coherent across mixed sites, this
- * listener also pushes a snapshot when a dispatched command would have
- * otherwise needed one. saveHist's dedup prevents double-snapshots when
- * callers already invoke saveHist themselves.
- *
- * commands.js calls listeners as `l(cmd)` for fresh dispatch, and
- * `l(cmd, 'undo'|'redo')` when walking the stack. We dual-write only
- * on fresh dispatch — the kind-less call. (v12/v13 inadvertently checked
- * `kind === 'apply'` which is never true; users still saw "Undo works"
- * because history.js#undo pushes a current-state snapshot before walking,
- * so a flip-then-undo coincidentally lands on the prior state. v14 fixes
- * the predicate so dual-write engages correctly.)
- *
- * Once all saveHist('n')/('s') call sites are gone, this dual-write
- * branch can be removed and undo() can use the commands stack directly.
  */
 export function _afterAnyCommand(cmd, kind) {
   const inv = (cmd && cmd.invalidates) || [];
@@ -87,18 +71,6 @@ export function _afterAnyCommand(cmd, kind) {
   // m-scope UI re-renders
   if (inv.includes('tempo') || inv.includes('timeSignatures')) {
     renderTempoList(); renderTSList();
-  }
-
-  // Dual-write into legacy snapshot stacks for undo/redo continuity.
-  // Skip on undo/redo — those phases are themselves walking the stack.
-  // Fresh dispatch passes no `kind` argument (undefined).
-  if (kind === undefined) {
-    if (inv.includes('notes') || inv.includes('textEvents')) {
-      import('./history.js').then(m => m.saveHist('n'));
-    }
-    if (inv.includes('shapeEvents') || inv.includes('lineEvents')) {
-      import('./history.js').then(m => m.saveHist('s'));
-    }
   }
 
   updateTotalMs();

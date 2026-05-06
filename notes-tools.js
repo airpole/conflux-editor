@@ -3,10 +3,8 @@
 // ============================================================
 // Phase B-1: doFlipSelected, doPaste, sel+del, and shiftSelectedByDelta
 // have been migrated from saveHist('n') snapshots to commands.js dispatch.
-// onDispatch in main.js still triggers a saveHist('n') under the hood
-// (see meta-ui.js _afterAnyCommand), so undo/redo continues to work via
-// the legacy snapshot stack while migration is incomplete elsewhere
-// (notes-input.js, text-events.js, etc. still call saveHist directly).
+// As of v17 the legacy saveHist system has been removed entirely; undo
+// is driven by the scope-partitioned command stacks in commands.js.
 
 import { $ } from './constants.js';
 import { D } from './state.js';

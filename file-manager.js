@@ -7,7 +7,7 @@ import { ES } from './editor-state.js';
 import { toast } from './utility.js';
 import { loadChartData } from './load-chart.js';
 import { compBPM } from './timing.js';
-import { saveHist } from './history.js';
+import { clearHistoryBaseline } from './history.js';
 import { updateAutoSaveIndicator } from './autosave.js';
 
 export function fmGetFiles() {
@@ -82,7 +82,7 @@ export function fmLoad(name) {
       import('./notes-render.js').then(m => m.drawN()),
       import('./shape-render.js').then(m => m.drawS()),
     ]).then(() => {
-      saveHist('n'); saveHist('s'); saveHist('m');
+      clearHistoryBaseline();
       closeMod('fileMod');
       toast('Loaded: ' + name);
     });

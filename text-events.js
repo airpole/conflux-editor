@@ -5,8 +5,6 @@
 // Edit branch uses EditTextEvent (Object.assign in-place) instead of
 // the old `D.textEvents[idx] = evt` whole-object replace, so existing
 // references (e.g. ES.editingTextEvt) stay valid across edits.
-// onDispatch in main.js dual-writes saveHist('n') for undo/redo
-// continuity while migration is incomplete elsewhere.
 
 import { $, TPB, TEXT_COLOR } from './constants.js';
 import { D } from './state.js';

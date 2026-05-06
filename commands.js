@@ -1,71 +1,107 @@
 // ============================================================
-//  COMMANDS — dispatch, command stack, factories
+//  COMMANDS — dispatch, scope-partitioned stacks, factories
 // ============================================================
 // A Command is { name, apply, undo, invalidates }.
 //   apply()        : run the mutation
 //   undo()         : reverse it
-//   invalidates[]  : dep keys passed to cache.invalidate()
+//   invalidates[]  : cache dep keys passed to cache.invalidate()
 //
 // dispatch(cmd) applies the command, invalidates caches, pushes onto
-// the undo stack, and clears the redo stack. undoCmd/redoCmd walk
-// the stacks. A listener subscription (onDispatch) lets main.js hook
-// side effects like auto-save and redraws without commands.js knowing
-// about them.
+// the appropriate scope-specific undo stack (n / s / m), and clears that
+// scope's redo stack. The scope is inferred from invalidates:
+//   'notes' or 'textEvents'         → n (Notes tab)
+//   'shapeEvents' or 'lineEvents'   → s (Shape tab)
+//   'tempo' or 'timeSignatures'     → m (Meta tab)
 //
-// This stack is independent of the legacy saveHist snapshot stacks in
-// main.js. When the user presses Ctrl+Z, main.js decides which stack
-// to pop (see main.js's undo() wrapper).
+// undoCmd(w) / redoCmd(w) walk the requested scope's stack. This matches
+// the v9 saveHist behavior where each tab kept an independent timeline.
+//
+// A listener subscription (onDispatch) lets main.js hook side effects
+// like auto-save and redraws without commands.js knowing about them.
+//
+// As of v17 this is the single source of truth for undo/redo. The
+// legacy snapshot system (history.js saveHist) was removed when all
+// user-action call sites finished migrating in v16.
 
 import { D } from './state.js';
 import { invalidate } from './cache.js';
 
-const undoStack = [];
-const redoStack = [];
 const LIMIT = 60;
 
+// One undo + one redo stack per scope.
+const undoStacks = { n: [], s: [], m: [] };
+const redoStacks = { n: [], s: [], m: [] };
+
 const listeners = [];
+
+/** Map a command's invalidates to its scope. Returns null if no scope matched. */
+function scopeOf(command) {
+  const inv = command.invalidates || [];
+  if (inv.includes('notes') || inv.includes('textEvents')) return 'n';
+  if (inv.includes('shapeEvents') || inv.includes('lineEvents')) return 's';
+  if (inv.includes('tempo') || inv.includes('timeSignatures')) return 'm';
+  return null;
+}
 
 /** Factory helper for building command objects. */
 export function cmd(name, apply, undo, invalidates = []) {
   return { name, apply, undo, invalidates };
 }
 
-/** Apply a command, invalidate its declared caches, and push onto the stack. */
+/** Apply a command, invalidate caches, push onto its scope's undo stack. */
 export function dispatch(command) {
   command.apply();
   invalidate(command.invalidates);
-  undoStack.push(command);
-  if (undoStack.length > LIMIT) undoStack.shift();
-  redoStack.length = 0;
+  const w = scopeOf(command);
+  if (w) {
+    const u = undoStacks[w], r = redoStacks[w];
+    u.push(command);
+    if (u.length > LIMIT) u.shift();
+    r.length = 0;
+  }
   for (const l of listeners) l(command);
 }
 
-/** Undo the most recent command. Returns the command that was undone, or null. */
-export function undoCmd() {
-  const c = undoStack.pop();
+/** Undo the most recent command in scope `w`. Returns the command, or null. */
+export function undoCmd(w) {
+  const u = undoStacks[w]; if (!u) return null;
+  const c = u.pop();
   if (!c) return null;
   c.undo();
   invalidate(c.invalidates);
-  redoStack.push(c);
+  redoStacks[w].push(c);
   for (const l of listeners) l(c, 'undo');
   return c;
 }
 
-/** Redo the most recently undone command. Returns it, or null. */
-export function redoCmd() {
-  const c = redoStack.pop();
+/** Redo the most recently undone command in scope `w`. */
+export function redoCmd(w) {
+  const r = redoStacks[w]; if (!r) return null;
+  const c = r.pop();
   if (!c) return null;
   c.apply();
   invalidate(c.invalidates);
-  undoStack.push(c);
+  undoStacks[w].push(c);
   for (const l of listeners) l(c, 'redo');
   return c;
 }
 
-export function hasUndo() { return undoStack.length > 0; }
-export function hasRedo() { return redoStack.length > 0; }
+export function hasUndo(w) { return (undoStacks[w] || []).length > 0; }
+export function hasRedo(w) { return (redoStacks[w] || []).length > 0; }
 
-/** Subscribe to dispatch events. listener(cmd, 'apply'|'undo'|'redo'). Returns unsubscribe fn. */
+/**
+ * Clear all undo/redo stacks. Called on chart load/import/init to
+ * mark a clean baseline — replaces the legacy `saveHist('n','s','m')`
+ * baseline-push idiom.
+ */
+export function clearAllHistory() {
+  for (const w of ['n', 's', 'm']) {
+    undoStacks[w].length = 0;
+    redoStacks[w].length = 0;
+  }
+}
+
+/** Subscribe to dispatch events. listener(cmd, 'undo'|'redo'|undefined). Returns unsubscribe fn. */
 export function onDispatch(fn) {
   listeners.push(fn);
   return () => {
@@ -73,9 +109,6 @@ export function onDispatch(fn) {
     if (i >= 0) listeners.splice(i, 1);
   };
 }
-
-/** Peek at the top of the undo stack without popping (for merging Ctrl+Z decisions). */
-export function peekUndo() { return undoStack[undoStack.length - 1] || null; }
 
 // ============================================================
 //  COMMAND FACTORIES

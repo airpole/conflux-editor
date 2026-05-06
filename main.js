@@ -21,7 +21,7 @@ import './play.js';
 import './keyboard.js';
 
 import { loadChartData, updateTotalMs } from './load-chart.js';
-import { saveHist, undo, redo } from './history.js';
+import { clearHistoryBaseline, undo, redo } from './history.js';
 import { goTab } from './tab-nav.js';
 import { goFS } from './fullscreen.js';
 import { setNT, nZ, doCopy, doPaste, doFlipSelected,
@@ -200,7 +200,7 @@ window.addEventListener('DOMContentLoaded', () => {
   initLongPressPaste('sPasteBtn', () => doShapePaste(false), () => doShapePaste(true));
 
   compBPM(); updateTotalMs();
-  saveHist('n'); saveHist('s'); saveHist('m');
+  clearHistoryBaseline();
   buildGP('ngp', ES.nGD, 'pickNG');
   buildGP('sgp', ES.sGD, 'pickSG');
   syncMeta(); renderTempoList(); renderTSList();
