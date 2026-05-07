@@ -106,10 +106,10 @@ canvas{display:block;position:absolute;top:0;left:0}
 <div id="app">
   <div class="nav">
     <span class="logo">CONFLUX</span>
-    <button class="nb on" onclick="goTab('note')">Notes</button>
-    <button class="nb" onclick="goTab('shape')">Shapes</button>
-    <button class="nb" onclick="goTab('play')">Play</button>
-    <button class="nb" onclick="goTab('meta')">Meta</button>
+    <button class="nb on" data-action="goTab" data-arg="note">Notes</button>
+    <button class="nb" data-action="goTab" data-arg="shape">Shapes</button>
+    <button class="nb" data-action="goTab" data-arg="play">Play</button>
+    <button class="nb" data-action="goTab" data-arg="meta">Meta</button>
     <span class="sp"></span>
     <span class="auto-save" id="autoSaveI">●</span>
     <button class="nsm" onclick="showMod('fileMod')">Files</button>

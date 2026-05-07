@@ -1,10 +1,10 @@
 // ============================================================
-//  MAIN — entry point: init, autosave detection, window shim
+//  MAIN — entry point: init, autosave detection, action dispatch
 // ============================================================
-// All editor logic lives in dedicated modules. This file boots them and
-// exposes the surface the inline `onclick="..."` handlers in index.html
-// need. Phase C will convert onclick= to addEventListener and shrink this
-// shim to nothing.
+// All editor logic lives in dedicated modules. This file boots them, runs the
+// data-action click dispatcher (Phase C), and still exposes the window shim
+// for the inline `onclick="..."` handlers that haven't been migrated yet.
+// As Phase C progresses, handlers move from the window shim into ACTION_MAP.
 
 import { $, LS_PREFIX } from './constants.js';
 import { D } from './state.js';
@@ -52,14 +52,15 @@ import { rszActiveCanvas } from './canvas-resize.js';
 // ============================================================
 //  GLOBAL EXPOSURE — for inline HTML onclick="..." handlers
 // ============================================================
-// Module scope doesn't auto-publish bindings to window, so do it explicitly.
-// Phase C will rewrite index.html's onclick= attributes to addEventListener
-// and shrink this list.
+// Surface for handlers not yet migrated to ACTION_MAP. Each Phase C group
+// removes its entries from here as the matching onclick= attributes in
+// index.html become data-action="…". When this Object.assign is empty,
+// Phase C is done and the whole block can be deleted.
 Object.assign(window, {
   // Data + DOM helper accessed from inline handlers
   D, $,
-  // Tab / tool / fullscreen
-  goTab, goFS,
+  // Tool / fullscreen
+  goFS,
   setNT, setST, pickEase,
   // Undo / redo
   undo, redo,
@@ -87,6 +88,23 @@ Object.assign(window, {
   loadJacket, clearJacket,
   // Auto-save (referenced from jacket.js via window. for cycle-avoidance)
   scheduleAutoSave,
+});
+
+// ============================================================
+//  ACTION DISPATCHER — Phase C migration target
+// ============================================================
+// Buttons with `data-action="<name>" data-arg="<value>"` route through here
+// instead of an inline onclick. ACTION_MAP grows as each Phase C group
+// migrates; once it's full and the window shim is empty, Phase C is done.
+const ACTION_MAP = {
+  goTab,
+};
+
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const handler = ACTION_MAP[el.dataset.action];
+  if (handler) handler(el.dataset.arg, e);
 });
 
 // ============================================================

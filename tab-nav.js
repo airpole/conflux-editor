@@ -53,7 +53,7 @@ export function goTab(t) {
   ES.activeTab = t;
   applySharedToTab(t);
   document.querySelectorAll('.nb').forEach(b => b.classList.remove('on'));
-  const navBtn = document.querySelector(`.nb[onclick="goTab('${t}')"]`);
+  const navBtn = document.querySelector(`.nb[data-action="goTab"][data-arg="${t}"]`);
   if (navBtn) navBtn.classList.add('on');
   for (const key in TAB_MAP) $(TAB_MAP[key]).classList.toggle('on', key === t);
   requestAnimationFrame(() => {
