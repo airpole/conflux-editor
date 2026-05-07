@@ -120,24 +120,24 @@ canvas{display:block;position:absolute;top:0;left:0}
   <div id="noteP" class="panel on">
     <div class="tb" id="ntb">
       <div class="trow">
-        <button class="t" title="Undo [Ctrl+Z]" onclick="undo('n')">↶</button>
-        <button class="t" title="Redo [Ctrl+Shift+Z]" onclick="redo('n')">↷</button>
-        <button class="t on" data-t="sel" onclick="setNT('sel')" title="Select [A]">Sel</button>
-        <button class="t" data-t="del" onclick="setNT('del')" title="Delete (Sel+Del: 선택 삭제) [D]">Del</button>
-        <button class="t" data-t="n" onclick="setNT('n')" style="border-color:#ffffff" title="Note [Q]">Note</button>
-        <button class="t" data-t="ln" onclick="setNT('ln')" style="border-color:#ffffff" title="Long note [W]">Long</button>
-        <button class="t" data-t="w" onclick="setNT('w')" style="border-color:#00838F" title="Wide note [E]">Wide</button>
-        <button class="t" data-t="wl" onclick="setNT('wl')" style="border-color:#00838F" title="Wide long note [R]">WLN</button>
-        <button class="t" data-t="txt" onclick="setNT('txt')" style="border-color:#4ae0ff;color:#4ae0ff" title="Text event [U]">Txt</button>
+        <button class="t" title="Undo [Ctrl+Z]" data-action="undo" data-arg="n">↶</button>
+        <button class="t" title="Redo [Ctrl+Shift+Z]" data-action="redo" data-arg="n">↷</button>
+        <button class="t on" data-t="sel" data-action="setNT" data-arg="sel" title="Select [A]">Sel</button>
+        <button class="t" data-t="del" data-action="setNT" data-arg="del" title="Delete (Sel+Del: 선택 삭제) [D]">Del</button>
+        <button class="t" data-t="n" data-action="setNT" data-arg="n" style="border-color:#ffffff" title="Note [Q]">Note</button>
+        <button class="t" data-t="ln" data-action="setNT" data-arg="ln" style="border-color:#ffffff" title="Long note [W]">Long</button>
+        <button class="t" data-t="w" data-action="setNT" data-arg="w" style="border-color:#00838F" title="Wide note [E]">Wide</button>
+        <button class="t" data-t="wl" data-action="setNT" data-arg="wl" style="border-color:#00838F" title="Wide long note [R]">WLN</button>
+        <button class="t" data-t="txt" data-action="setNT" data-arg="txt" style="border-color:#4ae0ff;color:#4ae0ff" title="Text event [U]">Txt</button>
       </div>
       <div class="trow">
-        <button class="t" id="nCopyBtn" onclick="doCopy()" style="border-color:var(--green)" title="Copy [Ctrl+C]">Copy</button>
+        <button class="t" id="nCopyBtn" data-action="doCopy" style="border-color:var(--green)" title="Copy [Ctrl+C]">Copy</button>
         <button class="t" id="nPasteBtn" style="border-color:var(--green)" title="Paste [Ctrl+V] / 길게 누르기: Flip-paste">Paste</button>
-        <button class="t" id="nFlipBtn" onclick="doFlipSelected()" style="border-color:var(--orange)" title="선택 노트 좌우 반전 [Ctrl+F]">Flip</button>
-        <button class="t" id="ngBtn" onclick="toggleGP('ngp')" title="Grid division [G]">1/2</button>
-        <button class="t on" id="nFollowBtn" onclick="toggleFollow()" style="border-color:#ffe44a" title="Follow playback [F]">Fol</button>
-        <button class="t" onclick="nZ(1)" title="Zoom in [+]">+</button>
-        <button class="t" onclick="nZ(-1)" title="Zoom out [-]">−</button>
+        <button class="t" id="nFlipBtn" data-action="doFlipSelected" style="border-color:var(--orange)" title="선택 노트 좌우 반전 [Ctrl+F]">Flip</button>
+        <button class="t" id="ngBtn" data-action="toggleGP" data-arg="ngp" title="Grid division [G]">1/2</button>
+        <button class="t on" id="nFollowBtn" data-action="toggleFollow" style="border-color:#ffe44a" title="Follow playback [F]">Fol</button>
+        <button class="t" data-action="nZ" data-arg="1" title="Zoom in [+]">+</button>
+        <button class="t" data-action="nZ" data-arg="-1" title="Zoom out [-]">−</button>
       </div>
     </div>
     <div class="cbody" id="nBody">

@@ -61,16 +61,16 @@ Object.assign(window, {
   D, $,
   // Tool / fullscreen
   goFS,
-  setNT, setST, pickEase,
-  // Undo / redo
+  setST, pickEase,
+  // Undo / redo (still used by shape toolbar inline)
   undo, redo,
-  // Notes editing
-  doCopy, doPaste, doFlipSelected, nZ, toggleFollow, toggleGP, closeGP,
+  // Notes editing — pasted via long-press init only (no inline onclick to feed)
+  doPaste,
   // Shapes editing
   doShapeCopy, doShapePaste, doShapeFlipSelected, sZ,
   toggleSFollow, toggleMirror, cyclePosSnap,
-  // Grid pickers (called from buildGP's template strings)
-  pickNG, pickSG,
+  // Grid pickers — toggleGP shared with notes (already migrated); template strings call pickNG/pickSG
+  toggleGP, closeGP, pickNG, pickSG,
   // Editor playback
   toggleEdPlay, edSeek, toggleMetronome, setOffsetHere, setPlaybackRate, drawN,
   // Text events
@@ -97,7 +97,14 @@ Object.assign(window, {
 // instead of an inline onclick. ACTION_MAP grows as each Phase C group
 // migrates; once it's full and the window shim is empty, Phase C is done.
 const ACTION_MAP = {
+  // Tab nav (C-1)
   goTab,
+  // Notes toolbar (C-2)
+  setNT,
+  nZ: arg => nZ(+arg),                  // data-arg is a string; coerce to number
+  toggleFollow, toggleGP,
+  doCopy, doFlipSelected,
+  undo, redo,                           // shared with shape toolbar (C-3)
 };
 
 document.addEventListener('click', e => {
