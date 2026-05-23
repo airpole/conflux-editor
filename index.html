@@ -112,8 +112,8 @@ canvas{display:block;position:absolute;top:0;left:0}
     <button class="nb" data-action="goTab" data-arg="meta">Meta</button>
     <span class="sp"></span>
     <span class="auto-save" id="autoSaveI">●</span>
-    <button class="nsm" onclick="showMod('fileMod')">Files</button>
-    <button class="nsm" onclick="goFS()">⛶</button>
+    <button class="nsm" data-action="showMod" data-arg="fileMod">Files</button>
+    <button class="nsm" data-action="goFS">⛶</button>
   </div>
 
   <!-- NOTES -->
@@ -147,14 +147,14 @@ canvas{display:block;position:absolute;top:0;left:0}
       <div class="ln-pend" id="tePendUI" style="display:none"></div>
     </div>
     <div class="playbar">
-      <button class="bp" id="nPlayBtn" onclick="toggleEdPlay('n')" title="Play/Pause [Space]">▶</button>
-      <input type="range" id="nSeek" min="0" max="1000" value="0" oninput="edSeek('n',+this.value)">
+      <button class="bp" id="nPlayBtn" data-action="toggleEdPlay" data-arg="n" title="Play/Pause [Space]">▶</button>
+      <input type="range" id="nSeek" min="0" max="1000" value="0" data-action="edSeek" data-arg="n">
       <span class="bi" id="nTime">0:00</span>
       <span class="bi" style="margin-left:2px">Off:</span>
-      <input type="number" id="syncOff" value="0" style="width:42px;padding:1px 3px;font-size:9px;background:var(--bg3);color:var(--tx);border:1px solid var(--brd);border-radius:2px" onchange="D.metadata.offset=+this.value;$('mOff').value=this.value;drawN()">
+      <input type="number" id="syncOff" value="0" style="width:42px;padding:1px 3px;font-size:9px;background:var(--bg3);color:var(--tx);border:1px solid var(--brd);border-radius:2px" data-action="setOffset">
       <span class="bi">ms</span>
-      <button class="nsm" onclick="setOffsetHere()" title="Set offset at current scroll position" style="color:var(--green);font-weight:bold">Set</button>
-      <button class="nsm" id="metroBtn" onclick="toggleMetronome()" title="Metronome" style="font-size:8px">🔔</button>
+      <button class="nsm" data-action="setOffsetHere" title="Set offset at current scroll position" style="color:var(--green);font-weight:bold">Set</button>
+      <button class="nsm" id="metroBtn" data-action="toggleMetronome" title="Metronome" style="font-size:8px">🔔</button>
     </div>
   </div>
 
@@ -162,30 +162,30 @@ canvas{display:block;position:absolute;top:0;left:0}
   <div id="shapeP" class="panel">
     <div class="tb" id="stb">
       <div class="trow">
-        <button class="t" title="Undo [Ctrl+Z]" onclick="undo('s')">↶</button>
-        <button class="t" title="Redo [Ctrl+Shift+Z]" onclick="redo('s')">↷</button>
-        <button class="t" data-t="sel" onclick="setST('sel')" title="Select [A]">Sel</button>
-        <button class="t" data-t="del" onclick="setST('del')" title="Delete (Sel+Del: 선택 삭제) [D]">Del</button>
-        <button class="t on" data-t="L" onclick="setST('L')" title="Blue chain [Q]" style="color:#6bb5ff;border-color:#6bb5ff">Blue</button>
-        <button class="t" data-t="R" onclick="setST('R')" title="Red chain [W]" style="color:#ff6b8a;border-color:#ff6b8a">Red</button>
-        <button class="t" data-t="C" onclick="setST('C')" title="Move center keeping width [E]">Cen</button>
-        <button class="t" data-t="P" onclick="setST('P')" title="Pinch: set both Blue&Red to same position [R]">Pin</button>
-        <button class="t" data-t="line" onclick="setST('line')" title="Line dividers [T]">Line</button>
-        <button class="t" id="sPosSnapBtn" onclick="cyclePosSnap()" title="Position snap [V]">V:1</button>
-        <button class="t" id="sgBtn" onclick="toggleGP('sgp')" title="Grid division [G]">1/2</button>
-        <button class="t" onclick="sZ(1)" title="Zoom in [+]">+</button>
-        <button class="t" onclick="sZ(-1)" title="Zoom out [-]">−</button>
+        <button class="t" title="Undo [Ctrl+Z]" data-action="undo" data-arg="s">↶</button>
+        <button class="t" title="Redo [Ctrl+Shift+Z]" data-action="redo" data-arg="s">↷</button>
+        <button class="t" data-t="sel" data-action="setST" data-arg="sel" title="Select [A]">Sel</button>
+        <button class="t" data-t="del" data-action="setST" data-arg="del" title="Delete (Sel+Del: 선택 삭제) [D]">Del</button>
+        <button class="t on" data-t="L" data-action="setST" data-arg="L" title="Blue chain [Q]" style="color:#6bb5ff;border-color:#6bb5ff">Blue</button>
+        <button class="t" data-t="R" data-action="setST" data-arg="R" title="Red chain [W]" style="color:#ff6b8a;border-color:#ff6b8a">Red</button>
+        <button class="t" data-t="C" data-action="setST" data-arg="C" title="Move center keeping width [E]">Cen</button>
+        <button class="t" data-t="P" data-action="setST" data-arg="P" title="Pinch: set both Blue&Red to same position [R]">Pin</button>
+        <button class="t" data-t="line" data-action="setST" data-arg="line" title="Line dividers [T]">Line</button>
+        <button class="t" id="sPosSnapBtn" data-action="cyclePosSnap" title="Position snap [V]">V:1</button>
+        <button class="t" id="sgBtn" data-action="toggleGP" data-arg="sgp" title="Grid division [G]">1/2</button>
+        <button class="t" data-action="sZ" data-arg="1" title="Zoom in [+]">+</button>
+        <button class="t" data-action="sZ" data-arg="-1" title="Zoom out [-]">−</button>
       </div>
       <div class="trow">
-        <button class="t" id="sCopyBtn" onclick="doShapeCopy()" style="border-color:var(--green)" title="Copy [Ctrl+C]">Copy</button>
+        <button class="t" id="sCopyBtn" data-action="doShapeCopy" style="border-color:var(--green)" title="Copy [Ctrl+C]">Copy</button>
         <button class="t" id="sPasteBtn" style="border-color:var(--green)" title="Paste [Ctrl+V] / 길게 누르기: Flip-paste">Paste</button>
-        <button class="t" id="sFlipPBtn" onclick="doShapeFlipSelected()" style="border-color:var(--orange)" title="선택 shape 좌우 반전 [Ctrl+F]">Flip</button>
-        <button class="t ease-on" id="easeBtn_Arc" onclick="pickEase('Arc')" style="border-color:#a855f7;color:#a855f7" title="Arc easing [1]">Arc</button>
-        <button class="t" id="easeBtn_Out-Sine" onclick="pickEase('Out-Sine')" style="border-color:#a855f7;color:#a855f7" title="Out-Sine easing [2]">Out</button>
-        <button class="t" id="easeBtn_In-Sine" onclick="pickEase('In-Sine')" style="border-color:#a855f7;color:#a855f7" title="In-Sine easing [3]">In</button>
-        <button class="t" id="easeBtn_Linear" onclick="pickEase('Linear')" style="border-color:#a855f7;color:#a855f7" title="Linear easing [4]">Lin</button>
-        <button class="t on" id="sFollowBtn" onclick="toggleSFollow()" style="border-color:#ffe44a" title="Follow playback [F]">Fol</button>
-        <button class="t" id="sMirrorBtn" onclick="toggleMirror()" style="border-color:var(--lime)" title="Mirror mode [S]">Mir</button>
+        <button class="t" id="sFlipPBtn" data-action="doShapeFlipSelected" style="border-color:var(--orange)" title="선택 shape 좌우 반전 [Ctrl+F]">Flip</button>
+        <button class="t ease-on" id="easeBtn_Arc" data-action="pickEase" data-arg="Arc" style="border-color:#a855f7;color:#a855f7" title="Arc easing [1]">Arc</button>
+        <button class="t" id="easeBtn_Out-Sine" data-action="pickEase" data-arg="Out-Sine" style="border-color:#a855f7;color:#a855f7" title="Out-Sine easing [2]">Out</button>
+        <button class="t" id="easeBtn_In-Sine" data-action="pickEase" data-arg="In-Sine" style="border-color:#a855f7;color:#a855f7" title="In-Sine easing [3]">In</button>
+        <button class="t" id="easeBtn_Linear" data-action="pickEase" data-arg="Linear" style="border-color:#a855f7;color:#a855f7" title="Linear easing [4]">Lin</button>
+        <button class="t on" id="sFollowBtn" data-action="toggleSFollow" style="border-color:#ffe44a" title="Follow playback [F]">Fol</button>
+        <button class="t" id="sMirrorBtn" data-action="toggleMirror" style="border-color:var(--lime)" title="Mirror mode [S]">Mir</button>
       </div>
       <select id="easeS" style="display:none"><option>Linear</option><option selected>Arc</option><option>Out-Sine</option><option>In-Sine</option></select>
       <select id="easeRS" style="display:none"><option>Linear</option><option selected>Arc</option><option>Out-Sine</option><option>In-Sine</option></select>
@@ -196,8 +196,8 @@ canvas{display:block;position:absolute;top:0;left:0}
       <div class="ln-pend" id="arcPendUI" style="display:none"></div>
     </div>
     <div class="playbar">
-      <button class="bp" id="sPlayBtn" onclick="toggleEdPlay('s')" title="Play/Pause [Space]">▶</button>
-      <input type="range" id="sSeek" min="0" max="1000" value="0" oninput="edSeek('s',+this.value)">
+      <button class="bp" id="sPlayBtn" data-action="toggleEdPlay" data-arg="s" title="Play/Pause [Space]">▶</button>
+      <input type="range" id="sSeek" min="0" max="1000" value="0" data-action="edSeek" data-arg="s">
       <span class="bi" id="sTime">0:00</span>
     </div>
   </div>
@@ -206,26 +206,26 @@ canvas{display:block;position:absolute;top:0;left:0}
   <div id="metaP" class="panel">
     <h3>Metadata</h3>
     <div class="mr2">
-      <div><label>Title</label><input id="mTitle" value="Untitled" oninput="D.metadata.title=this.value"></div>
-      <div><label>Artist</label><input id="mArtist" value="airpole" oninput="D.metadata.artist=this.value"></div>
+      <div><label>Title</label><input id="mTitle" value="Untitled" data-action="setMeta" data-arg="title"></div>
+      <div><label>Artist</label><input id="mArtist" value="airpole" data-action="setMeta" data-arg="artist"></div>
     </div>
     <div class="mr2">
-      <div><label>Subtitle</label><input id="mSubtitle" value="" oninput="D.metadata.subtitle=this.value" placeholder="e.g. remix, chart version..."></div>
+      <div><label>Subtitle</label><input id="mSubtitle" value="" data-action="setMeta" data-arg="subtitle" placeholder="e.g. remix, chart version..."></div>
     </div>
     <div class="mr2">
-      <div><label>Charter</label><input id="mCharter" value="airpole" oninput="D.metadata.charter=this.value"></div>
+      <div><label>Charter</label><input id="mCharter" value="airpole" data-action="setMeta" data-arg="charter"></div>
       <div><label>Difficulty</label>
-        <select id="mDiff" onchange="D.metadata.difficulty=this.value">
+        <select id="mDiff" data-action="setMeta" data-arg="difficulty">
           <option selected>Trace</option><option>Drift</option><option>Surge</option><option>Flux</option><option>Phase</option>
         </select></div>
-      <div><label>Level</label><input id="mLevel" type="number" value="0" min="0" max="99" oninput="D.metadata.level=+this.value"></div>
+      <div><label>Level</label><input id="mLevel" type="number" value="0" min="0" max="99" data-action="setMeta" data-arg="level"></div>
     </div>
     <h3>Tempo</h3>
     <div id="tempoList" style="margin:4px 0"></div>
     <div style="display:flex;gap:4px;align-items:center;margin-top:4px">
       <input id="tAddTk" type="text" placeholder="마디.박.세분" value="1" style="width:80px;padding:3px 5px;font-size:10px;background:var(--bg3);border:1px solid var(--brd);border-radius:3px;color:var(--tx)" title="예: 1, 3.2, 80.4.1">
       <input id="tAddBpm" type="number" placeholder="BPM" value="120" min="1" max="999" step="0.01" style="width:60px;padding:3px 5px;font-size:10px;background:var(--bg3);border:1px solid var(--brd);border-radius:3px;color:var(--tx)">
-      <button class="nsm" onclick="addTempo()">+ Add</button>
+      <button class="nsm" data-action="addTempo">+ Add</button>
     </div>
     <div style="font-size:8px;color:var(--tx2);margin-top:2px">표기: 마디.박.세분 (예: 80.4.1) 또는 t틱번호 (예: t1920)</div>
     <h3>Time Signature</h3>
@@ -235,11 +235,11 @@ canvas{display:block;position:absolute;top:0;left:0}
       <input id="tsAddNum" type="number" placeholder="Num" value="4" min="1" max="32" style="width:40px;padding:3px 5px;font-size:10px;background:var(--bg3);border:1px solid var(--brd);border-radius:3px;color:var(--tx)">
       <span style="color:var(--tx2);font-size:10px">/</span>
       <input id="tsAddDen" type="number" placeholder="Den" value="4" min="1" max="32" style="width:40px;padding:3px 5px;font-size:10px;background:var(--bg3);border:1px solid var(--brd);border-radius:3px;color:var(--tx)">
-      <button class="nsm" onclick="addTimeSig()">+ Add</button>
+      <button class="nsm" data-action="addTimeSig">+ Add</button>
     </div>
     <h3>Offset / Sync</h3>
     <div class="mr2" style="margin-top:4px">
-      <div><label>Chart Offset (ms)</label><input id="mOff" type="number" value="0" onchange="D.metadata.offset=+this.value;$('syncOff').value=this.value;drawN()"></div>
+      <div><label>Chart Offset (ms)</label><input id="mOff" type="number" value="0" data-action="setOffset"></div>
     </div>
     <div class="mr2" style="margin-top:8px">
       <div><label>Measure Label Offset</label><input id="mMeasureOff" type="number" value="0" step="1" title="첫 노트가 0으로 표시되도록 마디 번호를 시프트. 예: 첫 노트가 m4면 -3 입력. 내부 데이터는 변경 없음."></div>
@@ -248,13 +248,13 @@ canvas{display:block;position:absolute;top:0;left:0}
     <h3>Sound</h3>
     <div class="mr2">
       <div><label>Hitsound Volume</label><input id="mHitVol" type="range" min="0" max="100" value="100" style="max-width:180px"><span id="hitVolLbl" style="font-size:9px;color:var(--tx2);margin-left:4px">100%</span></div>
-      <div><label>Playback Rate</label><input id="mRate" type="range" min="50" max="100" value="100" oninput="setPlaybackRate(this.value)" style="max-width:180px"><span id="rateLbl" style="font-size:9px;color:var(--tx2);margin-left:4px">1.00x</span></div>
+      <div><label>Playback Rate</label><input id="mRate" type="range" min="50" max="100" value="100" data-action="setPlaybackRate" style="max-width:180px"><span id="rateLbl" style="font-size:9px;color:var(--tx2);margin-left:4px">1.00x</span></div>
     </div>
     <h3>Audio</h3>
-    <div class="dz" onclick="$('audF').click()">Tap to load audio<input type="file" id="audF" accept="audio/*" style="display:none" onchange="loadAud(this)"></div>
+    <div class="dz" data-action="clickInput" data-arg="audF">Tap to load audio<input type="file" id="audF" accept="audio/*" style="display:none" data-action="loadAud"></div>
     <div id="audS" style="font-size:10px;color:var(--tx2)">No audio</div>
     <h3>Jacket</h3>
-    <div class="dz" onclick="$('jacketF').click()" style="display:flex;align-items:center;gap:8px">
+    <div class="dz" data-action="clickInput" data-arg="jacketF" style="display:flex;align-items:center;gap:8px">
       <img id="jacketPrev" style="display:none;width:48px;height:48px;border-radius:4px;object-fit:cover;flex-shrink:0">
       <span id="jacketLbl" style="flex:1">Tap to load jacket (1:1 square image)</span>
       <input type="file" id="jacketF" accept="image/*" style="display:none">
@@ -274,11 +274,11 @@ canvas{display:block;position:absolute;top:0;left:0}
     <div style="font-size:9px;color:var(--tx2);margin-bottom:4px">슬롯을 클릭한 뒤 원하는 키를 누르세요. 중복 시 자동 교환됩니다.</div>
     <div id="keySlots" style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0"></div>
     <div id="keyConfigHint" style="font-size:10px;color:var(--acc2);margin:4px 0;display:none">눌러서 설정할 키를 입력하세요...</div>
-    <button class="nsm" onclick="resetKeyBindings()" style="margin-top:4px">기본값으로 초기화</button>
+    <button class="nsm" data-action="resetKeyBindings" style="margin-top:4px">기본값으로 초기화</button>
     <h3>Text Events</h3>
     <div id="teList" style="margin:4px 0"></div>
     <div style="display:flex;gap:4px;margin-top:4px">
-      <button class="nsm" onclick="teNew(0)" style="background:var(--acc);color:#fff">+ Add Text Event</button>
+      <button class="nsm" data-action="teNew" data-arg="0" style="background:var(--acc);color:#fff">+ Add Text Event</button>
     </div>
   </div>
 
@@ -288,14 +288,14 @@ canvas{display:block;position:absolute;top:0;left:0}
       <canvas id="plCv"></canvas>
     </div>
     <div class="pvbar" id="playBar">
-      <button class="bp" id="playBtn" onclick="playToggle()">▶</button>
-      <button class="nsm" onclick="playRestart()" title="처음부터 (전체화면)">↺</button>
-      <input type="range" id="playSeek" min="0" max="1000" value="0" oninput="playSeekPreview(+this.value)" onchange="playSeekTo(+this.value)" style="flex:1;height:3px">
+      <button class="bp" id="playBtn" data-action="playToggle">▶</button>
+      <button class="nsm" data-action="playRestart" title="처음부터 (전체화면)">↺</button>
+      <input type="range" id="playSeek" min="0" max="1000" value="0" data-action="playSeek" style="flex:1;height:3px">
       <span class="bi" id="playTime">0:00</span>
       <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--tx2);cursor:pointer;padding:0 2px" title="Autoplay: 자동 SYNC 판정">
         <input type="checkbox" id="playAutoChk" style="margin:0;width:12px;height:12px">Auto
       </label>
-      <button class="nsm" id="playFsBtn" onclick="togglePlayFullscreen()" title="전체화면" style="font-size:11px">⛶</button>
+      <button class="nsm" id="playFsBtn" data-action="togglePlayFullscreen" title="전체화면" style="font-size:11px">⛶</button>
     </div>
   </div>
 
@@ -355,9 +355,9 @@ canvas{display:block;position:absolute;top:0;left:0}
       </div>
     </div>
     <div class="mf" style="display:flex;gap:5px;margin-top:8px;justify-content:flex-end">
-      <button class="nsm" id="teDelBtn" onclick="teDelete()" style="color:var(--red);margin-right:auto;display:none">Delete</button>
-      <button class="nsm" onclick="closeMod('txtMod')">Cancel</button>
-      <button class="nsm" style="background:var(--acc);color:#fff" onclick="teSave()">Save</button>
+      <button class="nsm" id="teDelBtn" data-action="teDelete" style="color:var(--red);margin-right:auto;display:none">Delete</button>
+      <button class="nsm" data-action="closeMod" data-arg="txtMod">Cancel</button>
+      <button class="nsm" style="background:var(--acc);color:#fff" data-action="teSave">Save</button>
     </div>
   </div>
 </div>
@@ -368,7 +368,7 @@ canvas{display:block;position:absolute;top:0;left:0}
     <h3>Select Text Event</h3>
     <div id="tePickList" style="max-height:200px;overflow-y:auto"></div>
     <div class="mf" style="display:flex;gap:5px;margin-top:8px;justify-content:flex-end">
-      <button class="nsm" onclick="closeMod('tePickMod')">Cancel</button>
+      <button class="nsm" data-action="closeMod" data-arg="tePickMod">Cancel</button>
     </div>
   </div>
 </div>
@@ -379,15 +379,15 @@ canvas{display:block;position:absolute;top:0;left:0}
     <h3>My Files</h3>
     <div class="fm-list" id="fmList"></div>
     <div class="fm-btns">
-      <button class="primary" onclick="fmSave()">Save</button>
-      <button onclick="fmSaveAs()">Save As</button>
+      <button class="primary" data-action="fmSave">Save</button>
+      <button data-action="fmSaveAs">Save As</button>
     </div>
     <div class="fm-btns" style="margin-top:4px">
-      <button onclick="doExport()">Export .json</button>
-      <button onclick="$('impF').click()">Import .json</button>
-      <input type="file" id="impF" accept=".json" style="display:none" onchange="doImport(this)">
+      <button data-action="doExport">Export .json</button>
+      <button data-action="clickInput" data-arg="impF">Import .json</button>
+      <input type="file" id="impF" accept=".json" style="display:none" data-action="doImport">
     </div>
-    <div style="text-align:right;margin-top:8px"><button class="nsm" onclick="closeMod('fileMod')">Close</button></div>
+    <div style="text-align:right;margin-top:8px"><button class="nsm" data-action="closeMod" data-arg="fileMod">Close</button></div>
   </div>
 </div>
 

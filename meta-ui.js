@@ -41,7 +41,7 @@ export function renderTempoList() {
   el.innerHTML = sorted.map((t, i) => {
     const isFirst = t.tick === 0 && i === 0;
     const mStr = tickToMeasure(t.tick);
-    return `<div class="ev-row"><span class="ev-info"><b>${mStr}</b> <span style="font-size:8px;color:#555">(t${t.tick})</span> → <b>${t.bpm}</b> BPM</span><input type="number" value="${t.bpm}" min="1" max="999" step="0.01" onchange="editTempo(${i},null,+this.value)" title="BPM">${isFirst ? '' : '<button class="ev-del" onclick="delTempo(' + i + ')" title="Delete">✕</button>'}</div>`;
+    return `<div class="ev-row"><span class="ev-info"><b>${mStr}</b> <span style="font-size:8px;color:#555">(t${t.tick})</span> → <b>${t.bpm}</b> BPM</span><input type="number" value="${t.bpm}" min="1" max="999" step="0.01" data-action="editTempo" data-arg="${i}" title="BPM">${isFirst ? '' : '<button class="ev-del" data-action="delTempo" data-arg="' + i + '" title="Delete">✕</button>'}</div>`;
   }).join('');
 }
 
@@ -51,7 +51,7 @@ export function renderTSList() {
   el.innerHTML = sorted.map((t, i) => {
     const isFirst = t.tick === 0 && i === 0;
     const mStr = tickToMeasure(t.tick);
-    return `<div class="ev-row"><span class="ev-info"><b>${mStr}</b> <span style="font-size:8px;color:#555">(t${t.tick})</span> → <b>${t.numerator}/${t.denominator}</b></span><input type="number" value="${t.numerator}" min="1" max="32" style="width:35px" onchange="editTS(${i},+this.value,null)" title="Numerator"><span style="color:var(--tx2)">/</span><input type="number" value="${t.denominator}" min="1" max="32" style="width:35px" onchange="editTS(${i},null,+this.value)" title="Denominator">${isFirst ? '' : '<button class="ev-del" onclick="delTS(' + i + ')" title="Delete">✕</button>'}</div>`;
+    return `<div class="ev-row"><span class="ev-info"><b>${mStr}</b> <span style="font-size:8px;color:#555">(t${t.tick})</span> → <b>${t.numerator}/${t.denominator}</b></span><input type="number" value="${t.numerator}" min="1" max="32" style="width:35px" data-action="editTSNum" data-arg="${i}" title="Numerator"><span style="color:var(--tx2)">/</span><input type="number" value="${t.denominator}" min="1" max="32" style="width:35px" data-action="editTSDen" data-arg="${i}" title="Denominator">${isFirst ? '' : '<button class="ev-del" data-action="delTS" data-arg="' + i + '" title="Delete">✕</button>'}</div>`;
   }).join('');
 }
 

@@ -38,7 +38,7 @@ import { syncMeta, addTempo, editTempo, delTempo,
          addTimeSig, editTS, delTS, renderTempoList, renderTSList,
          _afterAnyCommand } from './meta-ui.js';
 import { onDispatch } from './commands.js';
-import { playToggle, playRestart, playSeekTo, playSeekPreview, stopPlay } from './play.js';
+import { playToggle, playRestart, playSeekTo, playSeekPreview } from './play.js';
 import { togglePlayFullscreen, drawPlayIdle } from './play-render.js';
 import { resetKeyBindings, loadKeyBindings, renderKeyCfg } from './key-config.js';
 import { doExport, doImport } from './import-export.js';
@@ -50,53 +50,29 @@ import { drawS } from './shape-render.js';
 import { rszActiveCanvas } from './canvas-resize.js';
 
 // ============================================================
-//  GLOBAL EXPOSURE — for inline HTML onclick="..." handlers
+//  ACTION DISPATCHER — single source of element→handler wiring
 // ============================================================
-// Surface for handlers not yet migrated to ACTION_MAP. Each Phase C group
-// removes its entries from here as the matching onclick= attributes in
-// index.html become data-action="…". When this Object.assign is empty,
-// Phase C is done and the whole block can be deleted.
-Object.assign(window, {
-  // Data + DOM helper accessed from inline handlers
-  D, $,
-  // Tool / fullscreen
-  goFS,
-  setST, pickEase,
-  // Undo / redo (still used by shape toolbar inline)
-  undo, redo,
-  // Notes editing — pasted via long-press init only (no inline onclick to feed)
-  doPaste,
-  // Shapes editing
-  doShapeCopy, doShapePaste, doShapeFlipSelected, sZ,
-  toggleSFollow, toggleMirror, cyclePosSnap,
-  // Grid pickers — toggleGP shared with notes (already migrated); template strings call pickNG/pickSG
-  toggleGP, closeGP, pickNG, pickSG,
-  // Editor playback
-  toggleEdPlay, edSeek, toggleMetronome, setOffsetHere, setPlaybackRate, drawN,
-  // Text events
-  teNew, teSave, teDelete, teEditByIdx, tePickSelect,
-  // Tempo / time sig
-  addTempo, editTempo, delTempo, addTimeSig, editTS, delTS,
-  // Play tab
-  playToggle, playRestart, playSeekTo, playSeekPreview, togglePlayFullscreen,
-  stopPlay, resetKeyBindings,
-  // File / import / export / modal
-  doExport, doImport, showMod, closeMod, fmSave, fmSaveAs, fmLoad, fmDelete,
-  // Audio
-  loadAud,
-  // Jacket
-  loadJacket, clearJacket,
-  // Auto-save (referenced from jacket.js via window. for cycle-avoidance)
-  scheduleAutoSave,
-});
+// Every interactive element carries `data-action="<name>"` (+ optional
+// `data-arg`); three delegated listeners on `document` route events here.
+// The three event types use SEPARATE maps, keyed by the same action name, so
+// one element can declare a single `data-action` and still get distinct
+// click / change / input behaviour (e.g. a range slider previews on `input`,
+// commits on `change`; an editable input must not fire its edit handler
+// merely because a click focused it).
+//
+// Phase C (v18–v26) migrated all 64 inline onclick handlers, every named
+// onchange/oninput handler, and four modules' template strings onto this
+// dispatcher. The old `Object.assign(window, …)` shim is gone.
 
-// ============================================================
-//  ACTION DISPATCHER — Phase C migration target
-// ============================================================
-// Buttons with `data-action="<name>" data-arg="<value>"` route through here
-// instead of an inline onclick. ACTION_MAP grows as each Phase C group
-// migrates; once it's full and the window shim is empty, Phase C is done.
-const ACTION_MAP = {
+// Shared handler — registered in both INPUT_ACTIONS and CHANGE_ACTIONS so that
+// metadata fields update live (was oninput) and the <select> commits (was
+// onchange). The input's own `type` drives coercion: number → Number, else
+// String. data-arg is the D.metadata key.
+const setMetaField = (arg, e) => {
+  D.metadata[arg] = e.target.type === 'number' ? +e.target.value : e.target.value;
+};
+
+const CLICK_ACTIONS = {
   // Tab nav (C-1)
   goTab,
   // Notes toolbar (C-2)
@@ -105,14 +81,78 @@ const ACTION_MAP = {
   toggleFollow, toggleGP,
   doCopy, doFlipSelected,
   undo, redo,                           // shared with shape toolbar (C-3)
+  // Shape toolbar (C-3)
+  setST, pickEase,
+  sZ: arg => sZ(+arg),
+  cyclePosSnap, toggleSFollow, toggleMirror,
+  doShapeCopy, doShapeFlipSelected,
+  // Meta tab — tempo / time signature (C-4)
+  addTempo, addTimeSig,
+  delTempo: arg => delTempo(+arg),
+  delTS:    arg => delTS(+arg),
+  // Edit playback + Play tab + File modal (C-5)
+  goFS, toggleEdPlay,
+  playToggle, playRestart, togglePlayFullscreen,
+  showMod, closeMod,
+  fmSave, fmSaveAs, fmLoad, fmDelete, doExport,
+  clickInput: arg => $(arg).click(),    // trigger a hidden <input type=file>
+  // Text event modals (C-6)
+  teNew: arg => teNew(+arg),            // data-arg is a tick
+  teSave, teDelete,
+  teEditByIdx:  arg => teEditByIdx(+arg),
+  tePickSelect: arg => tePickSelect(+arg),
+  // Audio / Jacket / key config (C-7)
+  setOffsetHere, toggleMetronome, resetKeyBindings,
+  // Grid picker dropdown items (C-8) — data-arg is "<pickerId>:<divisor>"
+  pickGrid: arg => {
+    const [id, d] = arg.split(':');
+    (id === 'ngp' ? pickNG : pickSG)(+d);
+    closeGP(id);
+  },
 };
 
-document.addEventListener('click', e => {
+const CHANGE_ACTIONS = {
+  // Meta tab — tempo / time signature number inputs (C-4).
+  // data-arg holds the row index; the new value comes off the input itself.
+  editTempo: (arg, e) => editTempo(+arg, null, +e.target.value),
+  editTSNum: (arg, e) => editTS(+arg, +e.target.value, null),
+  editTSDen: (arg, e) => editTS(+arg, null, +e.target.value),
+  // Play tab + File modal (C-5)
+  playSeek:  (arg, e) => playSeekTo(+e.target.value),   // commit on release
+  doImport:  (arg, e) => doImport(e.target),            // file <input> element
+  // Audio (C-7)
+  loadAud:   (arg, e) => loadAud(e.target),             // file <input> element
+  // Metadata fields (C-9)
+  setMeta: setMetaField,
+  setOffset: (arg, e) => {
+    const raw = e.target.value;
+    D.metadata.offset = +raw;
+    $('mOff').value = raw;
+    $('syncOff').value = raw;
+    drawN();
+  },
+};
+
+const INPUT_ACTIONS = {
+  // Range sliders fire `input` continuously while dragging (C-5).
+  edSeek:   (arg, e) => edSeek(arg, +e.target.value),   // arg = 'n' | 's' scope
+  playSeek: (arg, e) => playSeekPreview(+e.target.value),
+  // Audio (C-7)
+  setPlaybackRate: (arg, e) => setPlaybackRate(+e.target.value),
+  // Metadata text fields update live as you type (C-9)
+  setMeta: setMetaField,
+};
+
+function dispatchAction(map, e) {
   const el = e.target.closest('[data-action]');
   if (!el) return;
-  const handler = ACTION_MAP[el.dataset.action];
+  const handler = map[el.dataset.action];
   if (handler) handler(el.dataset.arg, e);
-});
+}
+
+document.addEventListener('click',  e => dispatchAction(CLICK_ACTIONS, e));
+document.addEventListener('change', e => dispatchAction(CHANGE_ACTIONS, e));
+document.addEventListener('input',  e => dispatchAction(INPUT_ACTIONS, e));
 
 // ============================================================
 //  INITIALIZATION
@@ -226,8 +266,8 @@ window.addEventListener('DOMContentLoaded', () => {
 
   compBPM(); updateTotalMs();
   clearHistoryBaseline();
-  buildGP('ngp', ES.nGD, 'pickNG');
-  buildGP('sgp', ES.sGD, 'pickSG');
+  buildGP('ngp', ES.nGD);
+  buildGP('sgp', ES.sGD);
   syncMeta(); renderTempoList(); renderTSList();
   loadKeyBindings(); renderKeyCfg();
   requestAnimationFrame(() => { rszActiveCanvas(); drawN(); });

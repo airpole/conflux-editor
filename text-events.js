@@ -126,7 +126,7 @@ export function showTePicker(list) {
   el.innerHTML = list.map((te, i) => {
     const pos = (te.pos || 'middle').replace('line:', 'L');
     const txt = (te.content || '(empty)').split('\n')[0].slice(0, 30);
-    return `<div class="te-pick-item" onclick="tePickSelect(${i})">${pos}: ${txt}</div>`;
+    return `<div class="te-pick-item" data-action="tePickSelect" data-arg="${i}">${pos}: ${txt}</div>`;
   }).join('');
   window._tePickList = list;
   showMod('tePickMod');
@@ -153,7 +153,7 @@ export function renderTeList() {
     const mode = '📖';
     const trn = te.transition === 'fade' ? '◐' : '■';
     const txt = (te.content || '').slice(0, 25) + ((te.content || '').length > 25 ? '…' : '');
-    return `<div class="te-item" onclick="teEditByIdx(${i})">
+    return `<div class="te-item" data-action="teEditByIdx" data-arg="${i}">
       <span style="color:${TEXT_COLOR};font-size:8px;min-width:36px">${tickToMeasure(te.startTick)}</span>
       <span class="te-txt">${mode}${trn} ${txt}</span>
       <span class="te-pos">${pos}</span>

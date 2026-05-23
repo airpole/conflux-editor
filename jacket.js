@@ -16,6 +16,7 @@ import { D } from './state.js';
 import { toast } from './utility.js';
 import { ES } from './editor-state.js';
 import { PS } from './play-state.js';
+import { scheduleAutoSave } from './autosave.js';
 
 let _jacketImg = null;          // HTMLImageElement (decoded jacket)
 let _jacketBlurCanvas = null;   // pre-rendered blur backdrop
@@ -78,7 +79,7 @@ export function loadJacket(inp) {
     D.metadata.jacketImage = dataURL;
     _hydrateJacketFromMeta();
     _syncJacketUI();
-    if (typeof window.scheduleAutoSave === 'function') window.scheduleAutoSave();
+    scheduleAutoSave();
     toast('Jacket loaded');
   };
   reader.onerror = () => toast('Jacket read failed');
@@ -91,7 +92,7 @@ export function clearJacket() {
   _jacketImg = null;
   _jacketBlurCanvas = null;
   _syncJacketUI();
-  if (typeof window.scheduleAutoSave === 'function') window.scheduleAutoSave();
+  scheduleAutoSave();
   if (ES.activeTab === 'play' && !PS.playActive) _drawPlayIdle();
 }
 
