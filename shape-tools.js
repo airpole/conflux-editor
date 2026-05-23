@@ -97,7 +97,13 @@ export function findShapeEvtAt(x, y, met) {
 
 export function doShapeCopy() {
   if (ES.selectedShapeEvts.size === 0) { toast('No shapes selected'); return; }
-  const sel = [...ES.selectedShapeEvts];
+  // Init events (easing === null) are anchors at the chart's start and must
+  // not be copied — pasting them would create duplicate anchors that
+  // normalizeShapeChain rejects. Filter them out silently here.
+  const all = [...ES.selectedShapeEvts];
+  const sel = all.filter(e => e.easing !== null);
+  const initSkipped = all.length - sel.length;
+  if (sel.length === 0) { toast('Init 이벤트는 복사할 수 없습니다'); return; }
   const minDest = Math.min(...sel.map(e => e.startTick + e.duration));
   ES.shapeClipboard = sel.map(e => ({
     relDestTick: (e.startTick + e.duration) - minDest,
@@ -106,7 +112,7 @@ export function doShapeCopy() {
     easing: e.easing,
     isStep: e.duration === 0
   }));
-  toast(`Copied ${ES.shapeClipboard.length} shape(s)`);
+  toast(`Copied ${ES.shapeClipboard.length} shape(s)${initSkipped ? ` (Init ${initSkipped}개 제외)` : ''}`);
 }
 
 export function doShapePaste(flip) {

@@ -292,7 +292,9 @@ export function drawN() {
   function drawNoteOnCanvas(n, isWide, mode) {
     const ne = n.startTick + (n.duration || 0);
     if (ne < stT - TPB || n.startTick > enT + TPB) return;
-    const ov = !isWide ? _ovm.get(n) : undefined;
+    // Wide notes also need overlap-map lookup so wide-on-wide invalid pairs
+    // can render their red warning border in the head pass below.
+    const ov = _ovm.get(n);
     if (ov && ov.type === 'hidden') return;
 
     const {headCol, bodyCol} = resolveNoteColor(n, ov);

@@ -56,19 +56,32 @@ export function drawGrid(ctx, layout, divPerBeat, style) {
   }
 
   // 2. Subdivisions (between beats)
+  // Subdivision unit is 1/divPerBeat of a quarter-note (TPB ticks). The
+  // grid resolution toggle is independent of the chart's time-signature
+  // denominator — picking "32" subdivisions still means 32nd-notes, even
+  // in a 7/8 signature. Beat lines (drawn below) override coincident
+  // subdivision lines; collect their ticks first so we can skip drawing
+  // a subdivision line at the same position (avoids a doubly-thick line
+  // when the subdivision grid happens to land on a beat boundary, e.g.
+  // any denominator 4 signature, or denominator 8 with divPerBeat=2).
+  const gLinesEarly = getGridLines(stT - TPB, enT + TPB);
+  const beatTicks = new Set();
+  for (const gl of gLinesEarly) beatTicks.add(gl.tick);
+
   const tpd = TPB / divPerBeat;
   const f = Math.floor(stT / tpd) * tpd;
   ctx.strokeStyle = style.subdivStroke;
   ctx.lineWidth = style.subdivWidth;
   for (let tk = f; tk <= enT; tk += tpd) {
-    if (tk % TPB === 0) continue;             // beat lines drawn separately
+    if (beatTicks.has(tk)) continue;          // beat lines drawn separately
     const y = tk2y(tk);
     if (y < gy - 1 || y > gy + gh + 1) continue;
     ctx.beginPath(); ctx.moveTo(gx, y); ctx.lineTo(gx + gw, y); ctx.stroke();
   }
 
   // 3. Beat & measure lines + labels
-  const gLines = getGridLines(stT - TPB, enT + TPB);
+  // Reuse the gridlines computed above so we only call getGridLines once.
+  const gLines = gLinesEarly;
   for (const gl of gLines) {
     const y = tk2y(gl.tick);
     if (y < gy - 1 || y > gy + gh + 1) continue;

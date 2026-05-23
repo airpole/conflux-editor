@@ -76,7 +76,9 @@ export function getTimeSig(tick) {
 /** Minimum renderable tick (one measure before zero, for pre-roll) */
 export function getMinTick() {
   const ts = (D.timeSignatures && D.timeSignatures[0]) || {numerator: 4, denominator: 4};
-  return -(TPB * ts.numerator);
+  // ticksPerMeasure: TPB is a quarter-note's tick count. With denominator d,
+  // one beat = TPB × 4 / d ticks; one measure = numerator × beats.
+  return -(TPB * 4 * ts.numerator / ts.denominator);
 }
 
 /** Convert tick to measure.beat.subdivision notation string */
@@ -90,23 +92,28 @@ export function tickToMeasure(tick) {
   // Handle negative ticks (measure 0 and below)
   if (tick < 0) {
     const ts = sorted[0];
-    const tpm = TPB * ts.numerator;
+    // tpb_unit: ticks per one beat at this denominator. TPB is for 1/4 notes;
+    // a 1/8-note beat is TPB/2 ticks, a 1/2-note beat is TPB*2 ticks.
+    const tpbUnit = TPB * 4 / ts.denominator;
+    const tpm = tpbUnit * ts.numerator;
     const measureBack = Math.ceil(-tick / tpm);
     const measureStart = -measureBack * tpm;
     const relTick = tick - measureStart;
-    const beat = Math.floor(relTick / TPB) + 1;
-    const subTick = relTick % TPB;
+    const beat = Math.floor(relTick / tpbUnit) + 1;
+    const subTick = relTick % tpbUnit;
     const measure = (1 - measureBack) + labelOff;
     if (subTick === 0 && beat === 1) return `${measure}`;
     if (subTick === 0) return `${measure}.${beat}`;
-    const sub = Math.round(subTick / (TPB / 16));
+    // Sub-beat resolution: 16 subdivisions per beat regardless of denominator,
+    // so .b.sub still reads naturally — sub=8 is "halfway through a beat".
+    const sub = Math.round(subTick / (tpbUnit / 16));
     return `${measure}.${beat}.${sub}`;
   }
   let globalMeasure = 1;
   for (let si = 0; si < sorted.length; si++) {
     const ts = sorted[si];
-    const bpm = ts.numerator;
-    const tpm = TPB * bpm;
+    const tpbUnit = TPB * 4 / ts.denominator;
+    const tpm = tpbUnit * ts.numerator;
     const epochStart = ts.tick;
     const epochEnd = (si < sorted.length - 1) ? sorted[si + 1].tick : Infinity;
     if (tick < epochStart) break;
@@ -114,13 +121,13 @@ export function tickToMeasure(tick) {
     const relTick = tick - epochStart;
     const measureInEpoch = Math.floor(relTick / tpm);
     const remainder = relTick - measureInEpoch * tpm;
-    const beat = Math.floor(remainder / TPB) + 1;
-    const subTick = remainder % TPB;
+    const beat = Math.floor(remainder / tpbUnit) + 1;
+    const subTick = remainder % tpbUnit;
     const measure = (globalMeasure + measureInEpoch) + labelOff;
     if (subTick === 0 && beat === 1) return `${measure}`;
     if (subTick === 0) return `${measure}.${beat}`;
     // Express sub-beat as subdivision
-    const sub = Math.round(subTick / (TPB / 16));
+    const sub = Math.round(subTick / (tpbUnit / 16));
     return `${measure}.${beat}.${sub}`;
   }
   // Fallback
@@ -151,8 +158,9 @@ export function measureToTick(str) {
   if (measure <= 0) {
     const sorted = getSortedTS();
     const ts = (sorted[0]) || {numerator: 4, denominator: 4};
-    const tpm = TPB * ts.numerator;
-    const tick = (measure - 1) * tpm + (beat - 1) * TPB + sub * (TPB / 16);
+    const tpbUnit = TPB * 4 / ts.denominator;
+    const tpm = tpbUnit * ts.numerator;
+    const tick = (measure - 1) * tpm + (beat - 1) * tpbUnit + sub * (tpbUnit / 16);
     return Math.round(tick);
   }
 
@@ -162,15 +170,15 @@ export function measureToTick(str) {
   let globalMeasure = 1;
   for (let si = 0; si < sorted.length; si++) {
     const ts = sorted[si];
-    const bpm = ts.numerator;
-    const tpm = TPB * bpm;
+    const tpbUnit = TPB * 4 / ts.denominator;
+    const tpm = tpbUnit * ts.numerator;
     const epochStart = ts.tick;
     const epochEnd = (si < sorted.length - 1) ? sorted[si + 1].tick : Infinity;
     const epochMeasures = epochEnd === Infinity ? Infinity : Math.floor((epochEnd - epochStart) / tpm);
 
     if (measure < globalMeasure + epochMeasures || epochEnd === Infinity) {
       const measureInEpoch = measure - globalMeasure;
-      const tick = epochStart + measureInEpoch * tpm + (beat - 1) * TPB + sub * (TPB / 16);
+      const tick = epochStart + measureInEpoch * tpm + (beat - 1) * tpbUnit + sub * (tpbUnit / 16);
       return Math.round(tick);
     }
     globalMeasure += epochMeasures;
@@ -192,17 +200,20 @@ export function getGridLines(startTk, endTk) {
   // Handle negative ticks (measure 0 region)
   if (startTk < 0) {
     const ts = sorted[0];
-    const bpm = ts.numerator;
-    const tpm = TPB * bpm;
+    const tpbUnit = TPB * 4 / ts.denominator;
+    const tpm = tpbUnit * ts.numerator;
     const negEnd = Math.min(0, endTk);
-    const firstBeat = Math.floor(startTk / TPB) * TPB;
-    for (let tk = firstBeat; tk < negEnd; tk += TPB) {
+    // Walk beat-by-beat: each beat is one grid line. Round down startTk to
+    // the nearest beat unit (was TPB; now tpbUnit so 8th-note signatures
+    // emit gridlines on the 8th-note grid rather than the 1/4-note grid).
+    const firstBeat = Math.floor(startTk / tpbUnit) * tpbUnit;
+    for (let tk = firstBeat; tk < negEnd; tk += tpbUnit) {
       if (tk < startTk) continue;
       const absTk = -tk;
       const measureBack = absTk > 0 ? Math.ceil(absTk / tpm) : 0;
       const measureStart = -measureBack * tpm;
       const relTick = tk - measureStart;
-      const beatInMeasure = Math.floor(relTick / TPB) % bpm;
+      const beatInMeasure = Math.floor(relTick / tpbUnit) % ts.numerator;
       const measure = (1 - measureBack) + labelOff;
       lines.push({tick: tk, isMeasure: beatInMeasure === 0, measureNum: measure, beatInMeasure: beatInMeasure + 1, isPreRoll: true});
     }
@@ -210,21 +221,21 @@ export function getGridLines(startTk, endTk) {
   let globalMeasure = 1;
   for (let si = 0; si < sorted.length; si++) {
     const ts = sorted[si];
-    const bpm = ts.numerator;
-    const tpm = TPB * bpm;
+    const tpbUnit = TPB * 4 / ts.denominator;
+    const tpm = tpbUnit * ts.numerator;
     const epochStart = ts.tick;
     const epochEnd = (si < sorted.length - 1) ? sorted[si + 1].tick : Infinity;
     if (epochStart >= endTk) break;
     if (epochEnd <= startTk) { globalMeasure += Math.floor((epochEnd - epochStart) / tpm); continue; }
     const relStart = Math.max(0, startTk - epochStart);
-    const firstBeatOff = Math.floor(relStart / TPB) * TPB;
-    for (let off = firstBeatOff; ; off += TPB) {
+    const firstBeatOff = Math.floor(relStart / tpbUnit) * tpbUnit;
+    for (let off = firstBeatOff; ; off += tpbUnit) {
       const tk = epochStart + off;
       if (tk > endTk || tk >= epochEnd) break;
       if (tk < startTk) continue;
-      const beatInEpoch = Math.floor(off / TPB);
-      const measureInEpoch = Math.floor(beatInEpoch / bpm);
-      const beatInMeasure = beatInEpoch % bpm;
+      const beatInEpoch = Math.floor(off / tpbUnit);
+      const measureInEpoch = Math.floor(beatInEpoch / ts.numerator);
+      const beatInMeasure = beatInEpoch % ts.numerator;
       const measure = (globalMeasure + measureInEpoch) + labelOff;
       lines.push({tick: tk, isMeasure: beatInMeasure === 0, measureNum: measure, beatInMeasure: beatInMeasure + 1, isPreRoll: false});
     }

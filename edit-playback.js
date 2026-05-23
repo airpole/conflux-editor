@@ -29,10 +29,13 @@ export function toggleEdPlay(w) {
     // Metronome
     if (AS.isMetronomeOn) {
       const curTk = ms2t(ms_);
-      const curBeat = Math.floor(curTk / TPB);
+      const ts = getTimeSig(curTk);
+      // Phase: beat unit follows the denominator — 8th-note signatures click
+      // on 8ths, 2/4 on 1/2-notes, etc. Was previously fixed at TPB (1/4).
+      const tpbUnit = TPB * 4 / ts.denominator;
+      const curBeat = Math.floor(curTk / tpbUnit);
       if (curBeat > ES.edLastBeat[w]) {
         ES.edLastBeat[w] = curBeat;
-        const ts = getTimeSig(curTk);
         playMetronome(curBeat % ts.numerator === 0);
       }
     }

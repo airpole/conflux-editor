@@ -25,6 +25,14 @@ function playLoop(ts) {
   if (!PS.playAudioStarted && curMs >= 0) {
     PS.playAudioStarted = true;
     startAud(D.metadata.offset);
+    // Rebind the hit scheduler at the exact moment audio comes online.
+    // resetHitScheduler in startPlay was based on the negative lead-in
+    // timestamp; by the time PS.playAudioStarted flips to true, the loop
+    // condition `nMs >= curMs` would skip notes whose nMs sits just before
+    // the current frame's curMs (notably the first note at nMs ≈ 0 when
+    // curMs has already advanced to ~16ms). Reset here so the lookahead
+    // window starts inclusive of any note that's already "due".
+    resetHitScheduler(curMs);
   }
   if (curMs >= 0) {
     if (PS.playAutoplay) {
@@ -84,6 +92,31 @@ function playLoop(ts) {
  */
 export function startPlay(fromBeginning, autoplay) {
   initAud();
+  // Phase: AudioContext.resume() is async — on Samsung Internet (and Safari)
+  // a freshly-created context can sit in 'suspended' for a frame or two
+  // after initAud(), and AS.asrc.start() called against a suspended context
+  // produces unpredictable scheduling: the buffer eventually plays but the
+  // ctx.currentTime anchor we capture in startAud() lags reality, so
+  // performance.now() (used for curMs) and the audio drift apart for the
+  // first 50-200ms. If suspended, defer the rest of startup until resumed.
+  if (AS.actx && AS.actx.state === 'suspended') {
+    AS.actx.resume().then(() => _startPlayImpl(fromBeginning, autoplay))
+                    .catch(() => _startPlayImpl(fromBeginning, autoplay));
+    return;
+  }
+  _startPlayImpl(fromBeginning, autoplay);
+}
+
+function _startPlayImpl(fromBeginning, autoplay) {
+  // Phase: re-read the Auto checkbox at session start. The change-event
+  // handler in main.js writes PS.playAutoplay, but on the very first toggle
+  // after page load there are edge cases (rapid label-click double-fires,
+  // pointercancel ordering) where the variable can lag the UI. Pulling the
+  // truth straight from the DOM here makes the visible checkbox state
+  // authoritative for the session, matching user expectation.
+  const autoChkEl = $('playAutoChk');
+  if (autoChkEl) PS.playAutoplay = !!autoChkEl.checked;
+
   const offMs = fromBeginning ? -LEAD_IN_MS : ES.sharedMs;
   PS.playOffMs = offMs;
   PS.playActive = true;
@@ -93,7 +126,10 @@ export function startPlay(fromBeginning, autoplay) {
   if (autoChk) { autoChk.disabled = true; autoChk.parentElement.style.opacity = '0.5'; }
   // Restart → fullscreen immediately. Play/Pause → windowed; user can promote.
   PS.playFullscreen = !!fromBeginning;
-  PS.playAutoplay = !!autoplay;
+  // Note: PS.playAutoplay was already set from the live checkbox above; the
+  // `autoplay` parameter is now only a fallback for callers that pass it
+  // explicitly when the checkbox is absent (it is the live source of truth).
+  if (!autoChkEl) PS.playAutoplay = !!autoplay;
   PS.playAudioStarted = false;
   PS.playHitMap.clear(); PS.playMissSet.clear(); PS.playEffects = [];
   PS.playCombo = 0; PS.playMaxCombo = 0; PS.playJudgQueue = [];

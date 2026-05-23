@@ -60,18 +60,34 @@ function onDown(e) {
       let ch_n = isW ? 0 : line4ToChannel(ci, isW);
       const removed = [];
       if (!isW) {
-        const maxN = OVERLAP_CHANNELS.includes(ch_n) ? 2 : 1;
+        const isOverlapCapable = OVERLAP_CHANNELS.includes(ch_n);
+        const maxN = isOverlapCapable ? 2 : 1;
         const atPos = D.notes.filter(n => n.channel === ch_n && n.startTick === snp && !n.isWide);
-        if (atPos.length >= maxN) {
-          const existTap = atPos.find(n => !n.duration);
-          if (existTap) removed.push(existTap);
-          else return;
+        if (isOverlapCapable) {
+          // L2/L3: multi-input lanes. Existing behaviour — displace a tap to
+          // make room for the new long when capacity is exhausted.
+          if (atPos.length >= maxN) {
+            const existTap = atPos.find(n => !n.duration);
+            if (existTap) removed.push(existTap);
+            else return;
+          }
+          const remaining = atPos.filter(n => !removed.includes(n));
+          if (remaining.length >= maxN) return;
+          const holdCount = remaining.filter(n => n.duration > 0).length;
+          if (holdCount >= maxN) return;
+        } else {
+          // L1/L4: single-key lanes. The user wants quick-long on top of an
+          // existing tap to surface visually as an invalid overlap (so they
+          // can spot it and decide how to resolve), NOT to silently replace
+          // the tap. Only block when adding would create a useless duplicate
+          // (a hold already exists here, since two holds on the same tick
+          // collapse into one visible note).
+          const existHold = atPos.find(n => n.duration > 0);
+          if (existHold) return;
+          // Otherwise allow the new long alongside any existing tap; the
+          // overlap detector in overlaps.js will mark both as 'invalid' and
+          // the renderer will draw a red warning border.
         }
-        // Re-check capacity excluding the tap we plan to displace.
-        const remaining = atPos.filter(n => !removed.includes(n));
-        if (remaining.length >= maxN) return;
-        const holdCount = remaining.filter(n => n.duration > 0).length;
-        if (holdCount >= maxN) return;
       } else {
         const existWide = D.notes.find(n => n.startTick === snp && n.channel === ch_n && n.isWide === isW && !n.duration);
         if (existWide) removed.push(existWide);
@@ -270,9 +286,27 @@ function drawDragRect() {
 }
 
 // ── Find note + tap handler (used from outside the IIFE in v20) ───
+/**
+ * Pick the most-relevant note at (clickTk, ci, ch_n).
+ *
+ * Phase: when notes overlap visually, the user almost always wants the
+ * smallest/most-precise hitbox first. Priority order (low number = picked first):
+ *   0 = tap (smallest hit area, easiest to mis-target)
+ *   1 = hold (occupies a span)
+ *   2 = wide tap (spans all 4 columns horizontally)
+ *   3 = wide hold (spans all 4 columns and a vertical span)
+ *
+ * Within the same priority, the closer note (by startTick distance) wins —
+ * so two stacked taps still resolve correctly.
+ */
+function notePriority(n) {
+  if (n.isWide) return n.duration > 0 ? 3 : 2;
+  return n.duration > 0 ? 1 : 0;
+}
+
 export function findNoteAt(clickTk, ci, ch_n, tpp, selMode) {
   const tol = tpp * 15;
-  let best = null, bd = 1e9;
+  let best = null, bestPri = Infinity, bd = 1e9;
   for (const n of D.notes) {
     let inRange = false;
     if (n.isWide) inRange = true;
@@ -286,7 +320,12 @@ export function findNoteAt(clickTk, ci, ch_n, tpp, selMode) {
       if (n.duration > 0 && clickTk >= n.startTick && clickTk <= ne) d = 0;
       else d = Math.min(Math.abs(n.startTick - clickTk), Math.abs(ne - clickTk));
     }
-    if (d < tol && d < bd) { bd = d; best = n; }
+    if (d >= tol) continue;
+    const pri = notePriority(n);
+    // Lower priority wins outright. Same priority → closer wins.
+    if (pri < bestPri || (pri === bestPri && d < bd)) {
+      bestPri = pri; bd = d; best = n;
+    }
   }
   return best;
 }

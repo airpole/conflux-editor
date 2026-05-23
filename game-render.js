@@ -184,7 +184,9 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   // Pre-compute hit/miss state
   const _gfState = new Map();
   for (const n of gfAll) {
-    const ov = !n.isWide ? _gfOvm.get(n) : undefined;
+    // Wide notes can be invalid (wide-on-wide); fetch their ov too so the
+    // head pass below can draw the red warning border in idle preview.
+    const ov = _gfOvm.get(n);
     if (ov && ov.type === 'hidden') { _gfState.set(n, null); continue; }
     const nMs = t2ms(n.startTick), neMs = t2ms(n.startTick + (n.duration || 0));
     if (nMs > topMs + 300 || neMs < botMs - 300) { _gfState.set(n, null); continue; }

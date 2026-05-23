@@ -97,26 +97,32 @@ export function clearJacket() {
 }
 
 export function _syncJacketUI() {
-  const dz = $('jacketDz');
-  const thumb = $('jacketThumb');
+  // The HTML structure is:
+  //   <div class="dz" ...> ← drop-zone, contains:
+  //     <img id="jacketPrev"> ← preview thumbnail (was 'jacketThumb' incorrectly)
+  //     <span id="jacketLbl"> ← caption text
+  //     <input type="file" id="jacketF"> ← hidden file picker
+  //   </div>
+  //   <button id="jacketClearBtn"> ← clear button (outside the dz)
+  // The earlier ids jacketDz/jacketThumb don't exist in the DOM, which is
+  // why preview never appeared after loadJacket succeeded.
+  const prev = $('jacketPrev');
+  const lbl = $('jacketLbl');
   const clr = $('jacketClearBtn');
-  if (!dz) return;
   const has = !!(D.metadata.jacketImage);
-  if (has) {
-    if (thumb) {
-      thumb.style.backgroundImage = `url(${D.metadata.jacketImage})`;
-      thumb.style.display = '';
+  if (prev) {
+    if (has) {
+      prev.src = D.metadata.jacketImage;
+      prev.style.display = '';
+    } else {
+      prev.removeAttribute('src');
+      prev.style.display = 'none';
     }
-    if (clr) clr.style.display = '';
-    dz.classList.add('has-jacket');
-  } else {
-    if (thumb) {
-      thumb.style.backgroundImage = '';
-      thumb.style.display = 'none';
-    }
-    if (clr) clr.style.display = 'none';
-    dz.classList.remove('has-jacket');
   }
+  if (lbl) {
+    lbl.textContent = has ? 'Jacket loaded — tap to replace' : 'Tap to load jacket (1:1 square image)';
+  }
+  if (clr) clr.style.display = has ? '' : 'none';
 }
 
 /**

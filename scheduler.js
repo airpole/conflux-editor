@@ -62,11 +62,18 @@ export function resetHitScheduler(curMs) {
  * Pre-schedule hitsounds up to curMs + lookaheadMs into the AudioContext.
  * Call every frame during playback.
  *
+ * Notes whose nMs sits just before curMs (within LATE_TOL ms) still emit a
+ * sound — scheduled at actx.currentTime so they play immediately. Without
+ * this tolerance, a note at chart-ms 0 would be silently skipped when the
+ * audio-start handshake leaves curMs at ~16ms by the time scheduling first
+ * runs after the lead-in.
+ *
  * @param {number} curMs                current chart ms
  * @param {number} lookaheadMs          how far ahead to schedule
  * @param {AudioContext} actx           the audio context (provides currentTime)
  * @param {(when: number) => void} playHitAt  scheduler function (AudioContext time)
  */
+const LATE_TOL_MS = 50;
 export function scheduleHitsounds(curMs, lookaheadMs, actx, playHitAt) {
   // If the cache rebuilt (notes mutated, chart loaded) our pointer is stale.
   if (getVersion('notesSorted') !== _hsCacheVersion) resetHitScheduler(curMs);
@@ -78,9 +85,12 @@ export function scheduleHitsounds(curMs, lookaheadMs, actx, playHitAt) {
     const n = notes[_hsIdx];
     const nMs = t2ms(n.startTick);
     if (nMs >= endMs) break;  // beyond the lookahead window
-    if (nMs >= curMs && !_hsScheduled.has(n)) {
+    if (nMs >= curMs - LATE_TOL_MS && !_hsScheduled.has(n)) {
       _hsScheduled.add(n);
-      playHitAt(actx.currentTime + (nMs - curMs) / 1000);
+      // Past notes (nMs < curMs) play at actx.currentTime; future notes get
+      // their proper offset so the audio scheduler aligns precisely.
+      const offsetS = Math.max(0, (nMs - curMs) / 1000);
+      playHitAt(actx.currentTime + offsetS);
     }
     _hsIdx++;
   }

@@ -77,6 +77,34 @@ defineCache('noteOverlapMap', ['notes'], () => {
       }
     }
   }
+
+  // Wide-on-wide invalid detection. Wide notes span all 4 columns, so two
+  // wides whose active ranges intersect collapse into one visible note even
+  // though both must be hit independently. Emit {type:'invalid'} for each
+  // so the head pass draws a red warning border. Same active-range rule as
+  // per-channel notes above: Tap = [t,t], Hold = [head, head+dur).
+  const wns = D.notes.filter(n => n.isWide);
+  if (wns.length >= 2) {
+    wns.sort((a, b) => a.startTick - b.startTick || (a.duration || 0) - (b.duration || 0));
+    for (let i = 0; i < wns.length; i++) {
+      const a = wns[i];
+      const aE = a.duration > 0 ? a.startTick + a.duration : a.startTick;
+      for (let j = i + 1; j < wns.length; j++) {
+        const b = wns[j];
+        if (b.startTick > aE) break;
+        const bE = b.duration > 0 ? b.startTick + b.duration : b.startTick;
+        let hit = false;
+        if (!a.duration && !b.duration) hit = (a.startTick === b.startTick);
+        else if (!a.duration && b.duration > 0) hit = (a.startTick >= b.startTick && a.startTick < bE);
+        else if (a.duration > 0 && !b.duration) hit = (b.startTick >= a.startTick && b.startTick < aE);
+        else hit = (a.startTick < bE && b.startTick < aE);
+        if (!hit) continue;
+        if (!ovm.has(a)) ovm.set(a, {type:'invalid'});
+        if (!ovm.has(b)) ovm.set(b, {type:'invalid'});
+      }
+    }
+  }
+
   return ovm;
 });
 
