@@ -68,20 +68,10 @@ export function drawN() {
     STYLE_NOTES
   );
 
-  // Channel separators — drawn BEFORE wide LN bodies so that wide LNs
-  // (which span all 4 columns) visually cover the separators within their
-  // body, matching how shapes/play render them as a solid full-width band.
-  const nCols = 4;
-  for (let i = 0; i <= nCols; i++) {
-    const x = padL + i * colW;
-    if (i === 2) { ctx.strokeStyle = '#667'; ctx.lineWidth = 1; }
-    else if (i === 0 || i === 4) { ctx.strokeStyle = '#445'; ctx.lineWidth = 1; }
-    else { ctx.strokeStyle = '#334'; ctx.lineWidth = 0.7; }
-    ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, ch); ctx.stroke();
-  }
-
-  // Wide note LN bodies (now drawn on top of the channel separators so the
-  // grid lines don't cut through a wide LN — matches shapes/play look).
+  // Wide note LN bodies — drawn before the channel separators. The
+  // separators below use a translucent white (#ffffff22, alpha ~0.13),
+  // matching shapes/play, so they visibly cross the wide body but as a
+  // faint guide rather than the previous opaque slate that hid the body.
   {
     for (const n of D.notes) {
       if (!n.isWide || n.duration <= 0) continue;
@@ -93,6 +83,19 @@ export function drawN() {
       ctx.fillStyle = WIDE_BODY;
       ctx.fillRect(nx + px, Math.min(y1, y2), nw - px * 2, Math.abs(y1 - y2));
     }
+  }
+
+  // Channel separators — unified translucent white to match shapes/play.
+  // Previously these were opaque #667/#445/#334; the contrast hierarchy
+  // (centre / outer / inner) was lost when crossing a wide LN body. With
+  // a single faint color the look is consistent across all three tabs.
+  const nCols = 4;
+  for (let i = 0; i <= nCols; i++) {
+    const x = padL + i * colW;
+    // Centre divider slightly stronger so the L1L2 / L3L4 split still reads.
+    if (i === 2) { ctx.strokeStyle = '#ffffff33'; ctx.lineWidth = 1; }
+    else         { ctx.strokeStyle = '#ffffff22'; ctx.lineWidth = 1; }
+    ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, ch); ctx.stroke();
   }
 
   // Channel labels
