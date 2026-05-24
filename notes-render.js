@@ -68,7 +68,20 @@ export function drawN() {
     STYLE_NOTES
   );
 
-  // Wide note LN bodies (drawn behind channel separators)
+  // Channel separators — drawn BEFORE wide LN bodies so that wide LNs
+  // (which span all 4 columns) visually cover the separators within their
+  // body, matching how shapes/play render them as a solid full-width band.
+  const nCols = 4;
+  for (let i = 0; i <= nCols; i++) {
+    const x = padL + i * colW;
+    if (i === 2) { ctx.strokeStyle = '#667'; ctx.lineWidth = 1; }
+    else if (i === 0 || i === 4) { ctx.strokeStyle = '#445'; ctx.lineWidth = 1; }
+    else { ctx.strokeStyle = '#334'; ctx.lineWidth = 0.7; }
+    ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, ch); ctx.stroke();
+  }
+
+  // Wide note LN bodies (now drawn on top of the channel separators so the
+  // grid lines don't cut through a wide LN — matches shapes/play look).
   {
     for (const n of D.notes) {
       if (!n.isWide || n.duration <= 0) continue;
@@ -80,16 +93,6 @@ export function drawN() {
       ctx.fillStyle = WIDE_BODY;
       ctx.fillRect(nx + px, Math.min(y1, y2), nw - px * 2, Math.abs(y1 - y2));
     }
-  }
-
-  // Channel separators
-  const nCols = 4;
-  for (let i = 0; i <= nCols; i++) {
-    const x = padL + i * colW;
-    if (i === 2) { ctx.strokeStyle = '#667'; ctx.lineWidth = 1; }
-    else if (i === 0 || i === 4) { ctx.strokeStyle = '#445'; ctx.lineWidth = 1; }
-    else { ctx.strokeStyle = '#334'; ctx.lineWidth = 0.7; }
-    ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, ch); ctx.stroke();
   }
 
   // Channel labels

@@ -51,15 +51,37 @@ export function drawS() {
   // Grid
   drawGrid(ctx, {gx, gy, gw, gh, stT, enT, tpp}, ES.sGD, STYLE_SHAPE);
 
-  // BPM markers (purple)
+  // BPM + Time-signature markers (purple). Measure labels live at the LEFT
+  // edge (STYLE_SHAPE.labelXOffset = 3), so we anchor BPM/TS to the RIGHT
+  // edge to avoid the previous collision. The shape canvas has almost no
+  // outside-grid space, so labels sit just inside the grid right edge with
+  // right-aligned text. When BPM and TS land on the same tick, stack them:
+  // BPM on top, TS just below.
+  ctx.textAlign = 'right';
   for (const t of D.tempo) {
     if (t.tick < stT - TPB || t.tick > enT + TPB) continue;
     const y = t2y(t.tick); if (y < gy - 5 || y > gy + gh + 5) continue;
     ctx.strokeStyle = '#b060ff66'; ctx.lineWidth = 1.2;
     ctx.beginPath(); ctx.moveTo(gx, y); ctx.lineTo(gx + gw, y); ctx.stroke();
     ctx.fillStyle = '#b060ff'; ctx.font = 'bold 7px sans-serif';
-    ctx.fillText(`♩${t.bpm}`, gx + 3, y - 2);
+    ctx.fillText(`♩${t.bpm}`, gx + gw - 3, y - 2);
   }
+  for (const ts of D.timeSignatures) {
+    if (ts.tick < stT - TPB || ts.tick > enT + TPB) continue;
+    const y = t2y(ts.tick); if (y < gy - 5 || y > gy + gh + 5) continue;
+    const coincidesWithBpm = D.tempo.some(t => t.tick === ts.tick);
+    if (!coincidesWithBpm) {
+      ctx.strokeStyle = '#b060ff44'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(gx, y); ctx.lineTo(gx + gw, y); ctx.stroke();
+    }
+    ctx.fillStyle = '#d080ff'; ctx.font = '7px sans-serif';
+    ctx.fillText(
+      `${ts.numerator}/${ts.denominator}`,
+      gx + gw - 3,
+      y + (coincidesWithBpm ? 8 : -2)
+    );
+  }
+  ctx.textAlign = 'start';
 
   // Shape boundary curves (raw chains, separate Blue/Red)
   ctx.save(); ctx.beginPath(); ctx.rect(gx, gy, gw, gh); ctx.clip();

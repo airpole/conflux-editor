@@ -67,7 +67,7 @@ export function drawPlayScreen(cv, curMs) {
     hitMap: PS.playHitMap,
     missSet: PS.playMissSet,
     showMissColor: true,
-    showInvalid: false   // Phase 6 Q4: hide Line 1/4 warnings during live Play
+    showInvalid: true    // Phase: surface unplayable overlaps in live Play too
   });
   drawPlayHUD(ctx, gx, gy, gw, gh, curMs);
   ctx.restore();
