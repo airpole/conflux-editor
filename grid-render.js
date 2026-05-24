@@ -129,13 +129,20 @@ export function drawGrid(ctx, layout, divPerBeat, style) {
  * drawN-style profile: full canvas, prominent labels in the left margin,
  * beat numbers at gx-10. Caller passes layout with gx=padL, gw=gw,
  * gy=0, gh=ch.
+ *
+ * Visibility note: subdivision/beat strokes were bumped up from the
+ * original very-dark slate (#1e1e30/#383850) because they read as nearly
+ * invisible on Samsung Browser at typical viewing brightness — the 1/2
+ * and 1/4 grid was effectively missing for the user. New values keep the
+ * blue-purple cast but lift luminance enough to register through both
+ * empty regions and (after the wide-body alpha change) wide LN interiors.
  */
 export const STYLE_NOTES = {
   bgFill: null,                 // drawN paints its own dark base
-  subdivStroke: '#1e1e30', subdivWidth: 0.3,
-  beatStroke: '#383850',  beatWidth: 0.7,
+  subdivStroke: '#3a3a52', subdivWidth: 0.5,
+  beatStroke: '#5a5a78',  beatWidth: 0.8,
   beatLabel: '#444',      beatLabelSize: 8,
-  measureStroke: '#555',  measureWidth: 1.5,
+  measureStroke: '#777',  measureWidth: 1.5,
   measureLabel: '#888',   measureLabelSize: 10,
   preRollStroke: null,
   preRollLabel: '#a855f7',

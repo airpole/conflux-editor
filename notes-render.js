@@ -1,7 +1,7 @@
 // ============================================================
 //  NOTES-RENDER — drawN + nMet (Notes tab)
 // ============================================================
-import { $, TPB, CHL, WIDE_BODY, TEXT_COLOR, INVALID_COLOR } from './constants.js';
+import { $, TPB, CHL, WIDE_BODY, WIDE_BODY_ALPHA, TEXT_COLOR, INVALID_COLOR } from './constants.js';
 import { D } from './state.js';
 import { ES } from './editor-state.js';
 import { AS } from './audio-state.js';
@@ -41,22 +41,18 @@ export function drawN() {
     }
   }
 
-  // Measure 0 tint (virtual area below tick 0)
+  // Measure 0 tint (virtual area below tick 0). Previously this area
+  // overlaid a diagonal hatch (12-px-spaced strokes) on top of the purple
+  // tint to signal "pre-roll", but the hatch read as visual noise on small
+  // screens (Samsung Browser users reported it as a stray pattern) and the
+  // purple tint plus the m-prefixed measure labels already communicate the
+  // pre-roll status. Tint kept; hatch removed.
   if (stT < 0) {
     const y0 = ch - (0 - stT) / tpp;
     const yClamp = Math.min(y0, ch);
     if (yClamp > 0) {
       ctx.fillStyle = '#1a0a2218';
       ctx.fillRect(0, 0, cw, yClamp);
-      ctx.save(); ctx.beginPath(); ctx.rect(padL, 0, gw, yClamp); ctx.clip();
-      ctx.strokeStyle = '#ffffff08'; ctx.lineWidth = 0.5;
-      for (let s = -yClamp; s < gw + yClamp; s += 12) {
-        ctx.beginPath();
-        ctx.moveTo(padL + s, yClamp);
-        ctx.lineTo(padL + s + yClamp, 0);
-        ctx.stroke();
-      }
-      ctx.restore();
     }
   }
 
@@ -68,10 +64,11 @@ export function drawN() {
     STYLE_NOTES
   );
 
-  // Wide note LN bodies — drawn before the channel separators. The
-  // separators below use a translucent white (#ffffff22, alpha ~0.13),
-  // matching shapes/play, so they visibly cross the wide body but as a
-  // faint guide rather than the previous opaque slate that hid the body.
+  // Wide LN bodies — drawn with WIDE_BODY_ALPHA (translucent) so the
+  // grid (subdivisions, beats, measures) and channel separators painted
+  // underneath remain faintly visible through the body. This matches the
+  // unified look the user requested: wide LNs read as colored regions
+  // rather than opaque masks that hide rhythm/lane reference.
   {
     for (const n of D.notes) {
       if (!n.isWide || n.duration <= 0) continue;
@@ -80,19 +77,20 @@ export function drawN() {
       const nx = padL, nw = colW * 4, px = 1;
       const y1 = ch - (n.startTick - stT) / tpp;
       const y2 = ch - (ne - stT) / tpp;
-      ctx.fillStyle = WIDE_BODY;
+      ctx.fillStyle = WIDE_BODY_ALPHA;
       ctx.fillRect(nx + px, Math.min(y1, y2), nw - px * 2, Math.abs(y1 - y2));
     }
   }
 
-  // Channel separators — unified translucent white to match shapes/play.
-  // Previously these were opaque #667/#445/#334; the contrast hierarchy
-  // (centre / outer / inner) was lost when crossing a wide LN body. With
-  // a single faint color the look is consistent across all three tabs.
+  // Channel separators — translucent white, drawn AFTER the wide body so
+  // they paint on top of the cyan body too (matches the line-divider look
+  // in shapes/play). Same #ffffff22 as shapes/play for visual consistency;
+  // with WIDE_BODY_ALPHA the body is now translucent enough that this
+  // alpha reads clearly both inside and outside wide LNs.
   const nCols = 4;
   for (let i = 0; i <= nCols; i++) {
     const x = padL + i * colW;
-    // Centre divider slightly stronger so the L1L2 / L3L4 split still reads.
+    // Centre divider slightly stronger so the L1L2 / L3L4 split reads.
     if (i === 2) { ctx.strokeStyle = '#ffffff33'; ctx.lineWidth = 1; }
     else         { ctx.strokeStyle = '#ffffff22'; ctx.lineWidth = 1; }
     ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, ch); ctx.stroke();

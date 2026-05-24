@@ -19,7 +19,14 @@ export const OVERLAP_CHANNELS = [2, 3];
 
 // ---- Visual colors (note rendering) ----
 export const WIDE_COLOR    = '#00BCD4'; // Bright cyan for wide notes (white+cyan pair)
-export const WIDE_BODY     = '#008898'; // Dark teal for wide LN body (solid, no alpha)
+export const WIDE_BODY     = '#008898'; // Dark teal for wide LN body (used opaque on heads)
+// Wide LN body fill uses a translucent version so the grid (subdivisions,
+// beats, measures) and channel separators underneath remain faintly visible
+// inside the body. Without this, the wide body acts as an opaque mask and
+// the user loses the rhythm/lane reference for any notes layered on top.
+// Tuned by eye: 0xCC ≈ 80% opacity keeps the cyan reading clearly as "wide"
+// while letting the darker grid lines (#383850 / #1e1e30) bleed through.
+export const WIDE_BODY_ALPHA = '#008898cc';
 export const OVERLAP_COLOR = '#FFD060'; // Gold for overlapping notes on Lines 2/3
 export const OVERLAP_BODY  = '#C89830'; // Dark gold for overlap LN body (solid, no alpha)
 export const NORMAL_BODY   = '#8888a0'; // Muted blue-gray for normal LN body (solid, no alpha)
