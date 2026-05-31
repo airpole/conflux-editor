@@ -178,9 +178,9 @@ export function drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, opts) {
   });
 
   const comboSz = Math.round(gw * 0.06);
-  const judgeSz = Math.round(gw * 0.026);   // ↑ 키움 (was 0.016)
-  const cntSz   = Math.round(gw * 0.015);   // 살짝 키움 (was 0.014)
-  const pctSz   = Math.round(gw * 0.015);   // 살짝 키움 (was 0.013)
+  const judgeSz = Math.round(gw * 0.021);    // 원래(0.016)와 키운 값(0.026)의 중간
+  const cntSz   = Math.round(gw * 0.014);    // 원래대로
+  const pctSz   = Math.round(gw * 0.01625);  // 원래(0.013)에서 25% 키움
 
   const comboY = gy + gh * 0.22;
   const judgeY = comboY + comboSz / 2 + G + judgeSz / 2;
@@ -196,11 +196,10 @@ export function drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, opts) {
   const cntGap = maxCntW + cntSz * 0.4;
   const cntSpan = cntGap * 3;
   const cntLeftX = cx_ - cntSpan / 2;
-  const rowFullW = cntSpan + maxCntW;
 
   // Combo
   withShadow(gw * 0.012, () => {
-    ctx.fillStyle = opts.combo > 0 ? '#ffffffee' : '#ffffff33';
+    ctx.fillStyle = opts.combo > 0 ? '#ffffffdd' : '#ffffff33';
     ctx.font = `bold ${comboSz}px sans-serif`;
     ctx.textAlign = 'center';
     drawTextVC(ctx, opts.combo, cx_, comboY);
@@ -218,36 +217,29 @@ export function drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, opts) {
     });
   }
 
-  // Counters — 색상 제거(흰색 통일). 카운트가 0인 판정은 알파를 낮춰
-  // 비활성 상태로 흐리게 표시. 배경 위 가독성 위해 그림자.
+  // Counters — 판정별 색상 유지(흰/노랑/초록/빨강). 콤보·판정 문자보다
+  // 알파를 낮게(cc) 깔아 위계 구분. 카운트가 0인 판정은 더 흐리게(비활성).
+  const cntCols = ['#ffffff','#ffe44a','#4aff8a','#ff4a6a'];
   const cntVals = [opts.counts.sync, opts.counts.perfect, opts.counts.good, opts.counts.miss];
   ctx.font = `bold ${cntSz}px sans-serif`;
   ctx.textAlign = 'center';
   for (let i = 0; i < 4; i++) {
     const active = cntVals[i] > 0;
     withShadow(gw * 0.008, () => {
-      ctx.fillStyle = active ? '#ffffffee' : '#ffffff33';
+      ctx.fillStyle = cntCols[i] + (active ? 'cc' : '33');
       drawTextVC(ctx, cntVals[i], cntLeftX + i * cntGap, cntY);
     });
   }
 
-  // Accuracy — 알파 높여 더 잘 보이게(was 77 → ee). 가로폭을 판정 숫자 행과
-  // 동일하게: 폰트를 키우는 대신 가로 스케일을 적용해 퍼센트 텍스트의 가로
-  // 길이 == 판정 숫자 4개가 차지하는 가로 길이가 정확히 일치.
+  // Accuracy — 판정 숫자처럼 콤보·판정 문자보다 낮은 알파(aa). 크기는 원래
+  // 대비 50% 키운 자연 크기로 표시(가로 스케일 강제 없음).
   {
     const pctStr = opts.accuracy.toFixed(2) + '%';
-    ctx.font = `bold ${pctSz}px sans-serif`;
-    const natW = ctx.measureText(pctStr).width;
-    const scaleX = natW > 0 ? (rowFullW / natW) : 1;
     withShadow(gw * 0.008, () => {
-      ctx.save();
-      ctx.translate(cx_, pctY);
-      ctx.scale(scaleX, 1);
-      ctx.fillStyle = '#ffffffee';
+      ctx.fillStyle = '#ffffffaa';
       ctx.font = `bold ${pctSz}px sans-serif`;
       ctx.textAlign = 'center';
-      drawTextVC(ctx, pctStr, 0, 0);
-      ctx.restore();
+      drawTextVC(ctx, pctStr, cx_, pctY);
     });
   }
 
