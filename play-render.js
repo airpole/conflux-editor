@@ -152,58 +152,104 @@ export function drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, opts) {
   const botH = botBot - botTop;
   const G = gw * 0.008;
 
+  // Shadow helper — HUD text sits over a moving shape area + (optionally) a
+  // jacket illustration backdrop. A soft dark shadow keeps every label
+  // readable regardless of what's behind it.
+  const withShadow = (blur, fn) => {
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.85)';
+    ctx.shadowBlur = blur;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = Math.max(1, blur * 0.12);
+    fn();
+    ctx.restore();
+  };
+
   // Pause button (top-left, no background)
   const barW = Math.round(cell * 0.12);
   const barH = Math.round(cell * 0.45);
   const barY_ = gy + (cell - barH) / 2;
   const barGap_ = Math.round(cell * 0.12);
   const barX1 = gx + (cell - barW * 2 - barGap_) / 2;
-  ctx.fillStyle = '#ffffffcc';
-  ctx.fillRect(barX1, barY_, barW, barH);
-  ctx.fillRect(barX1 + barW + barGap_, barY_, barW, barH);
+  withShadow(gw * 0.004, () => {
+    ctx.fillStyle = '#ffffffcc';
+    ctx.fillRect(barX1, barY_, barW, barH);
+    ctx.fillRect(barX1 + barW + barGap_, barY_, barW, barH);
+  });
 
   const comboSz = Math.round(gw * 0.06);
-  const judgeSz = Math.round(gw * 0.016);
-  const cntSz   = Math.round(gw * 0.014);
-  const pctSz   = Math.round(gw * 0.013);
+  const judgeSz = Math.round(gw * 0.026);   // ↑ 키움 (was 0.016)
+  const cntSz   = Math.round(gw * 0.015);   // 살짝 키움 (was 0.014)
+  const pctSz   = Math.round(gw * 0.015);   // 살짝 키움 (was 0.013)
 
   const comboY = gy + gh * 0.22;
   const judgeY = comboY + comboSz / 2 + G + judgeSz / 2;
   const cntY   = judgeY + judgeSz / 2 + G + cntSz / 2;
   const pctY   = cntY + cntSz / 2 + G + pctSz / 2;
 
-  // Combo
-  ctx.fillStyle = opts.combo > 0 ? '#ffffffdd' : '#ffffff33';
-  ctx.font = `bold ${comboSz}px sans-serif`;
-  ctx.textAlign = 'center';
-  drawTextVC(ctx, opts.combo, cx_, comboY);
-
-  // Judgment
-  if (opts.lastJudg) {
-    const colMap = {SYNC:'#ffffff', PERFECT:'#ffe44a', GOOD:'#4aff8a', MISS:'#ff4a6a'};
-    ctx.fillStyle = colMap[opts.lastJudg.type] || '#fff';
-    ctx.font = `bold ${judgeSz}px sans-serif`;
-    ctx.textAlign = 'center';
-    drawTextVC(ctx, opts.lastJudg.type, cx_, judgeY);
-  }
-
-  // Counters
-  const cntCols = ['#ffffff','#ffe44a','#4aff8a','#ff4a6a'];
-  const cntVals = [opts.counts.sync, opts.counts.perfect, opts.counts.good, opts.counts.miss];
+  // ── Counter geometry (computed first so the percent row can match width) ──
+  // The four counters are centered on cx_, spaced by cntGap. cntSpan is the
+  // center-to-center span; rowFullW is the outer edge-to-edge width of the
+  // whole row (used to scale the percent text to the exact same width).
   ctx.font = `bold ${cntSz}px sans-serif`;
   const maxCntW = ctx.measureText('9999').width;
   const cntGap = maxCntW + cntSz * 0.4;
-  const cntX0 = cx_ - (cntGap * 3) / 2;
-  for (let i = 0; i < 4; i++) {
-    ctx.fillStyle = cntCols[i] + 'aa';
+  const cntSpan = cntGap * 3;
+  const cntLeftX = cx_ - cntSpan / 2;
+  const rowFullW = cntSpan + maxCntW;
+
+  // Combo
+  withShadow(gw * 0.012, () => {
+    ctx.fillStyle = opts.combo > 0 ? '#ffffffee' : '#ffffff33';
+    ctx.font = `bold ${comboSz}px sans-serif`;
     ctx.textAlign = 'center';
-    drawTextVC(ctx, cntVals[i], cntX0 + i * cntGap, cntY);
+    drawTextVC(ctx, opts.combo, cx_, comboY);
+  });
+
+  // Judgment — 판정별 색은 유지(어떤 판정인지 구분돼야 의미가 있음).
+  // 크기를 키우고 그림자를 깔아 배경 위에서도 잘 보이게.
+  if (opts.lastJudg) {
+    const colMap = {SYNC:'#ffffff', PERFECT:'#ffe44a', GOOD:'#4aff8a', MISS:'#ff4a6a'};
+    withShadow(gw * 0.01, () => {
+      ctx.fillStyle = colMap[opts.lastJudg.type] || '#fff';
+      ctx.font = `bold ${judgeSz}px sans-serif`;
+      ctx.textAlign = 'center';
+      drawTextVC(ctx, opts.lastJudg.type, cx_, judgeY);
+    });
   }
 
-  // Accuracy
-  ctx.fillStyle = '#ffffff77'; ctx.font = `${pctSz}px sans-serif`;
+  // Counters — 색상 제거(흰색 통일). 카운트가 0인 판정은 알파를 낮춰
+  // 비활성 상태로 흐리게 표시. 배경 위 가독성 위해 그림자.
+  const cntVals = [opts.counts.sync, opts.counts.perfect, opts.counts.good, opts.counts.miss];
+  ctx.font = `bold ${cntSz}px sans-serif`;
   ctx.textAlign = 'center';
-  drawTextVC(ctx, opts.accuracy.toFixed(2) + '%', cx_, pctY);
+  for (let i = 0; i < 4; i++) {
+    const active = cntVals[i] > 0;
+    withShadow(gw * 0.008, () => {
+      ctx.fillStyle = active ? '#ffffffee' : '#ffffff33';
+      drawTextVC(ctx, cntVals[i], cntLeftX + i * cntGap, cntY);
+    });
+  }
+
+  // Accuracy — 알파 높여 더 잘 보이게(was 77 → ee). 가로폭을 판정 숫자 행과
+  // 동일하게: 폰트를 키우는 대신 가로 스케일을 적용해 퍼센트 텍스트의 가로
+  // 길이 == 판정 숫자 4개가 차지하는 가로 길이가 정확히 일치.
+  {
+    const pctStr = opts.accuracy.toFixed(2) + '%';
+    ctx.font = `bold ${pctSz}px sans-serif`;
+    const natW = ctx.measureText(pctStr).width;
+    const scaleX = natW > 0 ? (rowFullW / natW) : 1;
+    withShadow(gw * 0.008, () => {
+      ctx.save();
+      ctx.translate(cx_, pctY);
+      ctx.scale(scaleX, 1);
+      ctx.fillStyle = '#ffffffee';
+      ctx.font = `bold ${pctSz}px sans-serif`;
+      ctx.textAlign = 'center';
+      drawTextVC(ctx, pctStr, 0, 0);
+      ctx.restore();
+    });
+  }
 
   // Bottom strip
   const leftPad = gw * 0.01;
@@ -214,23 +260,25 @@ export function drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, opts) {
   const artistY  = titleY + titleSz / 2 + infoGap + artistSz / 2;
   const botMid   = botTop + botH / 2;
 
-  ctx.fillStyle = '#ffffffcc'; ctx.font = `bold ${titleSz}px sans-serif`;
-  ctx.textAlign = 'left';
-  drawTextVC(ctx, D.metadata.title || 'Untitled', gx + leftPad, titleY);
+  withShadow(gw * 0.006, () => {
+    ctx.fillStyle = '#ffffffdd'; ctx.font = `bold ${titleSz}px sans-serif`;
+    ctx.textAlign = 'left';
+    drawTextVC(ctx, D.metadata.title || 'Untitled', gx + leftPad, titleY);
 
-  ctx.fillStyle = '#ffffff88'; ctx.font = `bold ${artistSz}px sans-serif`;
-  ctx.textAlign = 'left';
-  drawTextVC(ctx, D.metadata.artist || '', gx + leftPad, artistY);
+    ctx.fillStyle = '#ffffff99'; ctx.font = `bold ${artistSz}px sans-serif`;
+    ctx.textAlign = 'left';
+    drawTextVC(ctx, D.metadata.artist || '', gx + leftPad, artistY);
 
-  ctx.fillStyle = '#ffffffcc'; ctx.font = `bold ${titleSz}px sans-serif`;
-  ctx.textAlign = 'right';
-  const diffStr = `${D.metadata.difficulty || 'Trace'} ${D.metadata.level || 0}${D.metadata.subtitle ? ' [' + D.metadata.subtitle + ']' : ''}`;
-  drawTextVC(ctx, diffStr, gx + gw - leftPad, botMid);
+    ctx.fillStyle = '#ffffffdd'; ctx.font = `bold ${titleSz}px sans-serif`;
+    ctx.textAlign = 'right';
+    const diffStr = `${D.metadata.difficulty || 'Trace'} ${D.metadata.level || 0}${D.metadata.subtitle ? ' [' + D.metadata.subtitle + ']' : ''}`;
+    drawTextVC(ctx, diffStr, gx + gw - leftPad, botMid);
 
-  const scoreSz = Math.round(cell * 0.38);
-  ctx.fillStyle = '#ffffffdd'; ctx.font = `bold ${scoreSz}px sans-serif`;
-  ctx.textAlign = 'center';
-  drawTextVC(ctx, String(opts.score).padStart(7, '0'), cx_, botMid);
+    const scoreSz = Math.round(cell * 0.38);
+    ctx.fillStyle = '#ffffffee'; ctx.font = `bold ${scoreSz}px sans-serif`;
+    ctx.textAlign = 'center';
+    drawTextVC(ctx, String(opts.score).padStart(7, '0'), cx_, botMid);
+  });
 
   ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
 }
