@@ -41,6 +41,7 @@ import { onDispatch } from './commands.js';
 import { playToggle, playRestart, playSeekTo, playSeekPreview } from './play.js';
 import { togglePlayFullscreen, drawPlayIdle } from './play-render.js';
 import { setGauge, setLockTarget, setLockMode, toggleFastSlow, initPlayOptionsUI } from './play-options.js';
+import { resultRetry, resultBack } from './play-result.js';
 import { resetKeyBindings, loadKeyBindings, renderKeyCfg } from './key-config.js';
 import { doExport, doImport } from './import-export.js';
 import { showMod, closeMod, fmSave, fmSaveAs, fmLoad, fmDelete } from './file-manager.js';
@@ -96,6 +97,8 @@ const CLICK_ACTIONS = {
   playToggle, playRestart, togglePlayFullscreen,
   // Play-tab gauge / lock options (test controls)
   setGauge, setLockTarget, setLockMode, toggleFastSlow,
+  // Result overlay
+  resultRetry, resultBack,
   showMod, closeMod,
   fmSave, fmSaveAs, fmLoad, fmDelete, doExport,
   clickInput: arg => $(arg).click(),    // trigger a hidden <input type=file>

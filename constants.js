@@ -99,6 +99,30 @@ export const RANK_TABLE = [
 // ---- Storage ----
 export const LS_PREFIX = 'cfx_';
 
+// ---- Gauge / state colors (design doc §4.1, §6) ----
+// Shared by the option bar, the in-game gauge bar, and the Result screen so a
+// given gauge/mark always reads the same color everywhere.
+//   Normal 초록 / Hard 빨강 / FC 하늘 / AP 노랑 / AS 흰.
+export const GAUGE_COLOR = {
+  normal: '#4aff8a',
+  hard:   '#ff4a5a',
+};
+export const LOCK_COLOR = {
+  none: '#9aa0a6',
+  fc:   '#5ad1ff',   // 하늘색
+  ap:   '#ffd23f',   // 노란색
+  as:   '#ffffff',   // 흰색
+};
+// State marks → color. H/C/P/N/F reuse gauge/neutral tones.
+export const STATE_COLOR = {
+  AS: '#ffffff', AP: '#ffd23f', FC: '#5ad1ff',
+  H:  '#ff4a5a', C: '#4aff8a',
+  P:  '#9aa0a6', N: '#9aa0a6', F: '#ff4a5a',
+};
+// Fast / Slow feedback colors (Fast 빨강 / Slow 파랑).
+export const FAST_COLOR = '#ff5a6a';
+export const SLOW_COLOR = '#5aa0ff';
+
 // ---- Shape editor ----
 /** Internal units per shape position snap level (index = level 0/1/2) */
 export const sPosSnapVals = [4, 2, 1];

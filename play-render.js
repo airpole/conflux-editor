@@ -1,7 +1,7 @@
 // ============================================================
 //  PLAY-RENDER — Play canvas (idle + active), HUD, fullscreen
 // ============================================================
-import { $ } from './constants.js';
+import { $, GAUGE_COLOR, FAST_COLOR, SLOW_COLOR } from './constants.js';
 import { D } from './state.js';
 import { ES } from './editor-state.js';
 import { PS } from './play-state.js';
@@ -68,7 +68,7 @@ export function drawPlayScreen(cv, curMs) {
     missSet: PS.playMissSet,
     showMissColor: true,
     showInvalid: true,   // Phase: surface unplayable overlaps in live Play too
-    gauge: { value: PS.gaugeValue, type: PS.gaugeType }   // judgment line → life bar
+    gauge: { value: PS.gaugeValue, type: PS.gaugeType, color: GAUGE_COLOR[PS.gaugeType] }   // judgment line → life bar
   });
   drawPlayHUD(ctx, gx, gy, gw, gh, curMs);
   ctx.restore();
@@ -266,9 +266,9 @@ export function drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, opts) {
     ctx.font = `bold ${fsSz}px sans-serif`;
     ctx.textAlign = 'center';
     withShadow(gw * 0.008, () => {
-      ctx.fillStyle = fastHot ? '#ff5a6a' : '#ff5a6a55';
+      ctx.fillStyle = fastHot ? FAST_COLOR : FAST_COLOR + '55';
       drawTextVC(ctx, `F ${opts.fastSlow.fast}`, cx_ - off, fsY);
-      ctx.fillStyle = slowHot ? '#5aa0ff' : '#5aa0ff55';
+      ctx.fillStyle = slowHot ? SLOW_COLOR : SLOW_COLOR + '55';
       drawTextVC(ctx, `S ${opts.fastSlow.slow}`, cx_ + off, fsY);
     });
   }

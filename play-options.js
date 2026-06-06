@@ -1,61 +1,77 @@
 // ============================================================
 //  PLAY-OPTIONS — gauge / clear-mark lock selection (Play tab)
 // ============================================================
-// Wires the Play-tab option bar to PS gauge/lock fields. These are TEST/DEV
-// controls so you can try Normal vs Hard and the FC/AP/AS locks without a
-// console. When the real Music Select inline-options panel lands, it can call
-// the same setters and this bar can be hidden.
+// Wires the Play-tab option bar to PS gauge/lock fields. Test/dev controls so
+// Normal vs Hard and the FC/AP/AS locks can be tried without a console. When
+// the real Music Select inline options land, they can reuse these setters.
 //
-// All four controls are frozen during an active session (mirroring how the
-// Auto checkbox is disabled mid-play) so options can't change underfoot.
+// Selection feedback is COLOR-ONLY (no toast): the chosen button lights up in
+// that gauge/mark's own color (Normal green / Hard red / FC sky / AP yellow /
+// AS white), pulling from the shared palette in constants.js so the bar, the
+// in-game gauge bar, and the Result screen all agree. Options freeze during an
+// active session (a frozen click simply does nothing).
 
-import { $ } from './constants.js';
+import { $, GAUGE_COLOR, LOCK_COLOR } from './constants.js';
 import { PS } from './play-state.js';
-import { toast } from './utility.js';
 
-/** Reflect current PS option state onto the button group `active` styling. */
-function syncOptUI() {
-  const setActive = (groupSel, matchVal) => {
-    document.querySelectorAll(groupSel).forEach(b => {
-      b.classList.toggle('on', b.dataset.arg === matchVal);
-    });
-  };
-  setActive('[data-action="setGauge"]', PS.gaugeType);
-  setActive('[data-action="setLockTarget"]', PS.lockTarget);
-  setActive('[data-action="setLockMode"]', PS.lockMode);
-  // Fast/Slow toggle is a single button reading its on/off state.
-  const fsBtn = $('optFastSlow');
-  if (fsBtn) {
-    fsBtn.classList.toggle('on', PS.showFastSlow);
-    fsBtn.textContent = PS.showFastSlow ? 'F/S ✓' : 'F/S ✗';
+// Mode buttons (Term/Casc) and the F/S toggle have no dedicated palette color;
+// they use a neutral accent when active.
+const ACCENT = '#cfd3d8';
+
+/** Paint one button as selected (filled with `color`) or idle. */
+function paintBtn(btn, on, color) {
+  if (!btn) return;
+  if (on) {
+    btn.style.background = color;
+    btn.style.color = '#10121a';      // dark text on bright fills for contrast
+    btn.style.borderColor = color;
+    btn.style.fontWeight = '700';
+  } else {
+    btn.style.background = 'transparent';
+    btn.style.color = 'var(--tx2)';
+    btn.style.borderColor = '';
+    btn.style.fontWeight = '';
   }
 }
 
-function blockedDuringPlay() {
-  if (PS.playActive) { toast('재생 중에는 변경할 수 없습니다'); return true; }
-  return false;
+function paintGroup(action, currentVal, colorFor) {
+  document.querySelectorAll('[data-action="' + action + '"]').forEach(btn => {
+    const v = btn.dataset.arg;
+    paintBtn(btn, v === currentVal, colorFor(v));
+  });
 }
 
+/** Reflect all current PS option state onto the button colors. */
+function syncOptUI() {
+  paintGroup('setGauge', PS.gaugeType, v => GAUGE_COLOR[v] || ACCENT);
+  paintGroup('setLockTarget', PS.lockTarget, v => LOCK_COLOR[v] || ACCENT);
+  paintGroup('setLockMode', PS.lockMode, () => ACCENT);
+  const fsBtn = $('optFastSlow');
+  if (fsBtn) {
+    paintBtn(fsBtn, PS.showFastSlow, ACCENT);
+    fsBtn.textContent = PS.showFastSlow ? 'F/S \u2713' : 'F/S \u2717';
+  }
+}
+
+function frozen() { return PS.playActive; }
+
 export function setGauge(type) {
-  if (blockedDuringPlay()) return;
+  if (frozen()) return;
   PS.gaugeType = (type === 'hard') ? 'hard' : 'normal';
   syncOptUI();
-  toast(`Gauge: ${PS.gaugeType.toUpperCase()}`);
 }
 
 export function setLockTarget(target) {
-  if (blockedDuringPlay()) return;
+  if (frozen()) return;
   const valid = ['none', 'fc', 'ap', 'as'];
   PS.lockTarget = valid.includes(target) ? target : 'none';
   syncOptUI();
-  toast(`Lock: ${PS.lockTarget.toUpperCase()}`);
 }
 
 export function setLockMode(mode) {
-  if (blockedDuringPlay()) return;
+  if (frozen()) return;
   PS.lockMode = (mode === 'cascade') ? 'cascade' : 'terminate';
   syncOptUI();
-  toast(`Lock mode: ${PS.lockMode}`);
 }
 
 export function toggleFastSlow() {

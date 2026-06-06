@@ -85,6 +85,29 @@ canvas{display:block;position:absolute;top:0;left:0}
 #playFS{position:fixed;top:0;left:0;width:100%;height:100%;background:#000;z-index:9999;display:none;flex-direction:column}
 #playFS.show{display:flex}
 #playFS canvas{flex:1;width:100%;height:100%}
+/* Result overlay */
+#resultOv{position:fixed;inset:0;background:rgba(6,7,12,.92);z-index:10000;display:none;align-items:center;justify-content:center}
+#resultOv.show{display:flex}
+#resultCard{width:min(440px,92vw);max-height:92vh;overflow:auto;background:linear-gradient(180deg,#14161f,#0d0f16);border:1px solid var(--brd);border-radius:14px;padding:26px 30px;box-shadow:0 20px 60px rgba(0,0,0,.6);text-align:center;font-family:sans-serif;color:var(--tx)}
+.rs-song{margin-bottom:14px}
+.rs-title{font-size:22px;font-weight:800;letter-spacing:.3px}
+.rs-artist{font-size:13px;color:var(--tx2);margin-top:2px}
+.rs-diff{font-size:12px;color:var(--acc2);margin-top:4px;letter-spacing:1px}
+.rs-rankrow{display:flex;align-items:center;justify-content:center;gap:18px;margin:10px 0}
+.rs-rank{font-size:64px;font-weight:900;line-height:1;background:linear-gradient(180deg,#fff,#aeb4c0);-webkit-background-clip:text;background-clip:text;color:transparent}
+.rs-state{font-size:20px;font-weight:800;border:2px solid;border-radius:8px;padding:4px 12px}
+.rs-score{font-size:40px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:3px;margin-top:6px}
+.rs-pct{font-size:15px;color:var(--tx2);margin-top:2px;position:relative}
+.rs-new{display:inline-block;margin-left:8px;font-size:11px;font-weight:800;color:#10121a;background:#ffd23f;border-radius:4px;padding:1px 6px;vertical-align:middle}
+.rs-counts{display:grid;grid-template-columns:1fr 1fr;gap:6px 18px;margin:18px auto;max-width:300px}
+.rs-c{display:flex;justify-content:space-between;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+.rs-cl{font-size:12px;letter-spacing:.5px}
+.rs-meta{font-size:12px;color:var(--tx2);line-height:1.7;margin:6px 0 18px}
+.rs-meta b{color:var(--tx);font-weight:700}
+.rs-actions{display:flex;gap:10px;justify-content:center}
+.rs-btn{flex:1;max-width:160px;padding:11px 0;border-radius:8px;border:1px solid var(--acc2);background:var(--acc2);color:#10121a;font-weight:800;font-size:14px;cursor:pointer;letter-spacing:.5px}
+.rs-btn.rs-back{background:transparent;color:var(--tx);border-color:var(--brd)}
+.rs-btn:active{transform:translateY(1px)}
 .keySlotBtn{background:var(--bg3);border:1px solid var(--brd);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:11px;color:var(--tx)}
 .keySlotBtn.active{border-color:var(--acc2);color:var(--acc2);background:var(--surf)}
 /* Text Event Editor */
@@ -318,6 +341,13 @@ canvas{display:block;position:absolute;top:0;left:0}
 <!-- Play Fullscreen Overlay -->
 <div id="playFS">
   <canvas id="playFSCv"></canvas>
+</div>
+
+<!-- Result Overlay -->
+<div id="resultOv">
+  <div id="resultCard">
+    <div id="resultBody"></div>
+  </div>
 </div>
 
 <!-- Text Event Modal -->

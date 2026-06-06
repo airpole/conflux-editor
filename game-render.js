@@ -289,9 +289,8 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   // in editor/idle previews, where we draw the plain white line instead.
   if (opts.gauge) {
     const frac = Math.max(0, Math.min(1, opts.gauge.value / 100));
-    // Gauge tint by type: Normal green, Hard red. (FC/AP/AS are locks layered
-    // on top of one of these gauges, not separate bar colors.)
-    const fill = opts.gauge.type === 'hard' ? '#ff4a5a' : '#4aff8a';
+    // Gauge tint by type (shared palette): Normal green, Hard red.
+    const fill = opts.gauge.color || (opts.gauge.type === 'hard' ? '#ff4a5a' : '#4aff8a');
     // Unfilled track (faint), then the filled portion left→right.
     ctx.fillStyle = 'rgba(255,255,255,0.10)';
     ctx.fillRect(gx, jY - 3, gw, 6);

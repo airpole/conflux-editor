@@ -13,6 +13,7 @@ import { resetHitScheduler, scheduleHitsounds,
          resetAutoJudger, autoJudge } from './scheduler.js';
 import { applyJudgment, applyTailSuccess, seedPlayStateFromCurMs } from './play-judgment.js';
 import { resetGauge, gaugeOnJudgment, computeResult } from './gauge.js';
+import { showResult } from './play-result.js';
 import { drawPlayScreen, _getPlayDom, _ensurePlayCanvasSized } from './play-render.js';
 import { rszActiveCanvas } from './canvas-resize.js';
 import { rszPlayFSCanvas } from './play-render.js';
@@ -117,8 +118,15 @@ function finalizePlay(forceEnded) {
       if (!PS.playHitMap.has(n) && !PS.playMissSet.has(n)) PS.playMissSet.add(n);
     }
   }
-  computeResult(forceEnded);
+  const result = computeResult(forceEnded);
+  const wasAutoplay = PS.playAutoplay;
   stopPlay();
+  // Autoplay runs are practice — no Result/record. Manual sessions show the
+  // Result overlay; Retry restarts the chart from the lead-in (fullscreen),
+  // matching the design's Retry → Credits → In-game flow (Credits TBD).
+  if (!wasAutoplay) {
+    showResult(result, () => startPlay(true, false));
+  }
 }
 
 /**
