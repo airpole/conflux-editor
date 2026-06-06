@@ -67,7 +67,8 @@ export function drawPlayScreen(cv, curMs) {
     hitMap: PS.playHitMap,
     missSet: PS.playMissSet,
     showMissColor: true,
-    showInvalid: true    // Phase: surface unplayable overlaps in live Play too
+    showInvalid: true,   // Phase: surface unplayable overlaps in live Play too
+    gauge: { value: PS.gaugeValue, type: PS.gaugeType }   // judgment line → life bar
   });
   drawPlayHUD(ctx, gx, gy, gw, gh, curMs);
   ctx.restore();
@@ -116,16 +117,25 @@ export function drawPlayHUD(ctx, gx, gy, gw, gh, curMs) {
   }
   const mCount = headMissPoints + midReleases;
   const total = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0);
-  const numerator = sCount + tailHits + pCount * 0.9 + gCount * 0.5;
-  const score = total > 0 ? Math.round((numerator / total) * 1000000) : 0;
-  const acc = total > 0 ? (numerator / total * 100) : 0;
+  // Score (million): SYNC/PERFECT = full, GOOD = half, MISS = 0. Matches the
+  // design doc §5 and gauge.js computeResult so HUD and Result never disagree.
+  const scoreNum = sCount + tailHits + pCount + gCount * 0.5;
+  const score = total > 0 ? Math.round((scoreNum / total) * 1000000) : 0;
+  // Percent (independent): SYNC 100 / PERFECT 70 / GOOD 30 / MISS 0.
+  const pctNum = sCount + tailHits + pCount * 0.7 + gCount * 0.3;
+  const acc = total > 0 ? (pctNum / total * 100) : 0;
   const lastJ = PS.playJudgQueue.length > 0 ? PS.playJudgQueue[PS.playJudgQueue.length - 1] : null;
   drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, {
     combo: PS.playCombo, totalNotes: total, score,
     lastJudg: lastJ,
     counts: {sync: sCount + tailHits, perfect: pCount, good: gCount, miss: mCount},
     accuracy: acc,
-    mode: 'play'
+    mode: 'play',
+    // Fast/Slow feedback (Settings-toggleable; normal notes only). Only shown
+    // in an active session, not in the idle editor preview.
+    fastSlow: (PS.playActive && PS.showFastSlow)
+      ? { last: PS.lastTiming, fast: PS.fastCount, slow: PS.slowCount }
+      : null
   });
 }
 
@@ -240,6 +250,26 @@ export function drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, opts) {
       ctx.font = `bold ${pctSz}px sans-serif`;
       ctx.textAlign = 'center';
       drawTextVC(ctx, pctStr, cx_, pctY);
+    });
+  }
+
+  // Fast / Slow — under the percent row, centered. Fast (red, F) sits left of
+  // center, Slow (blue, S) right. The most-recent timing is highlighted; both
+  // running counts trail beside their letters. Hidden for MISS / wide notes
+  // (those never set lastTiming) and when the Settings toggle is off.
+  if (opts.fastSlow) {
+    const fsSz = Math.round(gw * 0.014);
+    const fsY = pctY + pctSz / 2 + G + fsSz / 2;
+    const off = gw * 0.06;
+    const fastHot = opts.fastSlow.last === 'FAST';
+    const slowHot = opts.fastSlow.last === 'SLOW';
+    ctx.font = `bold ${fsSz}px sans-serif`;
+    ctx.textAlign = 'center';
+    withShadow(gw * 0.008, () => {
+      ctx.fillStyle = fastHot ? '#ff5a6a' : '#ff5a6a55';
+      drawTextVC(ctx, `F ${opts.fastSlow.fast}`, cx_ - off, fsY);
+      ctx.fillStyle = slowHot ? '#5aa0ff' : '#5aa0ff55';
+      drawTextVC(ctx, `S ${opts.fastSlow.slow}`, cx_ + off, fsY);
     });
   }
 

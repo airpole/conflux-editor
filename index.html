@@ -287,6 +287,19 @@ canvas{display:block;position:absolute;top:0;left:0}
     <div class="cbody" id="plBody">
       <canvas id="plCv"></canvas>
     </div>
+    <div class="pvbar" id="playOptBar" style="gap:2px;flex-wrap:wrap">
+      <span class="bi" style="opacity:.6">Gauge</span>
+      <button class="nsm" data-action="setGauge" data-arg="normal" title="Normal 게이지 (종료 시 75% 이상 클리어)">Normal</button>
+      <button class="nsm" data-action="setGauge" data-arg="hard" title="Hard 게이지 (100% 시작, 0% 도달 시 실패 / 20미스)">Hard</button>
+      <span class="bi" style="opacity:.6;margin-left:6px">Lock</span>
+      <button class="nsm" data-action="setLockTarget" data-arg="none" title="추가 잠금 없음">None</button>
+      <button class="nsm" data-action="setLockTarget" data-arg="fc" title="Full Combo: MISS 없음">FC</button>
+      <button class="nsm" data-action="setLockTarget" data-arg="ap" title="All Perfect: GOOD 이하 금지">AP</button>
+      <button class="nsm" data-action="setLockTarget" data-arg="as" title="All Sync: SYNC 외 금지">AS</button>
+      <button class="nsm" data-action="setLockMode" data-arg="terminate" title="잠금 깨지면 즉시 종료">Term</button>
+      <button class="nsm" data-action="setLockMode" data-arg="cascade" title="잠금 깨지면 한 단계 하강">Casc</button>
+      <button class="nsm" id="optFastSlow" data-action="toggleFastSlow" title="Fast/Slow 표시 토글" style="margin-left:6px">F/S ✓</button>
+    </div>
     <div class="pvbar" id="playBar">
       <button class="bp" id="playBtn" data-action="playToggle">▶</button>
       <button class="nsm" data-action="playRestart" title="처음부터 (전체화면)">↺</button>

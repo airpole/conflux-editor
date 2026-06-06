@@ -12,6 +12,7 @@ import { resetHitScheduler, scheduleHitsounds,
          resetMissChecker, checkPlayMisses,
          resetAutoJudger, autoJudge } from './scheduler.js';
 import { applyJudgment, applyTailSuccess, seedPlayStateFromCurMs } from './play-judgment.js';
+import { resetGauge, gaugeOnJudgment, computeResult } from './gauge.js';
 import { drawPlayScreen, _getPlayDom, _ensurePlayCanvasSized } from './play-render.js';
 import { rszActiveCanvas } from './canvas-resize.js';
 import { rszPlayFSCanvas } from './play-render.js';
@@ -59,9 +60,20 @@ function playLoop(ts) {
           PS.playMissSet.add(n);
           PS.playCombo = 0;
           PS.playJudgQueue.push({type: 'MISS', diff: undefined, t: curMs});
+          // Gauge: a missed note (LN head miss auto-fails its tail too, but we
+          // charge the gauge a single MISS — the lost tail is already counted
+          // in scoring; double-draining the gauge would be over-punishing).
+          if (gaugeOnJudgment('MISS')) PS.playForceEnded = true;
         }
       );
     }
+  }
+  // ── Force-end (gauge death / terminate-mode lock break) ──────
+  // A judgment this frame may have flagged a force-end. Only meaningful in
+  // manual play (autoplay can't fail). Finalize as a fail (State F).
+  if (PS.playForceEnded && !PS.playAutoplay) {
+    finalizePlay(/*forceEnded=*/true);
+    return;
   }
   // Self-correcting per-frame canvas resize
   const dom = _getPlayDom();
@@ -81,8 +93,32 @@ function playLoop(ts) {
       if (dom.time.textContent !== txt) dom.time.textContent = txt;
     }
   }
-  if (curMs > (ES.totalMs || 0) + 2000) { stopPlay(); return; }
+  // ── Natural song end ─────────────────────────────────────────
+  if (curMs > (ES.totalMs || 0) + 2000) {
+    // In manual play, evaluate clear/fail and produce a result before stopping.
+    if (!PS.playAutoplay) finalizePlay(/*forceEnded=*/false);
+    else stopPlay();
+    return;
+  }
   PS.playRAF = requestAnimationFrame(playLoop);
+}
+
+/**
+ * End a manual session and compute its result. forceEnded=true marks a
+ * fail-stop (gauge death / terminate-mode lock break): the remaining unjudged
+ * notes are swept into the miss set so the result reflects the whole chart,
+ * per the design's force-end handling. Then computeResult() fills PS.playResult
+ * and stopPlay() tears the session down. (Result-screen transition is wired in
+ * a later step; for now the outcome lives on PS.playResult.)
+ */
+function finalizePlay(forceEnded) {
+  if (forceEnded) {
+    for (const n of D.notes) {
+      if (!PS.playHitMap.has(n) && !PS.playMissSet.has(n)) PS.playMissSet.add(n);
+    }
+  }
+  computeResult(forceEnded);
+  stopPlay();
 }
 
 /**
@@ -134,6 +170,9 @@ function _startPlayImpl(fromBeginning, autoplay) {
   PS.playHitMap.clear(); PS.playMissSet.clear(); PS.playEffects = [];
   PS.playCombo = 0; PS.playMaxCombo = 0; PS.playJudgQueue = [];
   PS.playHoldState = {}; PS.playKeyHeld.clear();
+
+  // Gauge / clear-mark lock + Fast-Slow counters reset for the new session.
+  resetGauge();
 
   seedPlayStateFromCurMs(offMs);
 

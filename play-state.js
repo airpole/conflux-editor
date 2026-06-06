@@ -44,6 +44,31 @@ export const PS = {
 
   playRAF: null,
   seekDragMs: null,
+
+  // ── Gauge / clear-mark lock (game mode) ──────────────────────
+  // Set before a session (from Music Select inline options); reset values are
+  // re-applied at session start by resetGauge() in gauge.js.
+  gaugeType: 'normal',     // 'normal' | 'hard'
+  gaugeValue: 0,           // current 0–100 life
+  lockTarget: 'none',      // 'none' | 'fc' | 'ap' | 'as'  (mark being attempted)
+  lockMode: 'terminate',   // 'terminate' | 'cascade'
+  lockTier: 'none',        // live highest-intact mark while playing (cascade lowers this)
+
+  // Session outcome. Null until a session ends. Filled by computeResult().
+  // { score, accuracy, rank, state, maxCombo, counts:{sync,perfect,good,miss},
+  //   cleared, failed, options:{mirror,...} }
+  playResult: null,
+  // True when the session was force-ended (gauge death or terminate-mode lock
+  // break). Distinguishes a fail-stop from a natural song-end stop.
+  playForceEnded: false,
+
+  // ── Fast / Slow feedback (normal Tap/Hold only; never Wide) ──
+  // lastTiming: 'FAST' | 'SLOW' | null — most recent non-MISS normal-note
+  // timing sign, shown under the judgment counters when enabled.
+  lastTiming: null,
+  fastCount: 0,
+  slowCount: 0,
+  showFastSlow: true,      // Settings toggle
 };
 
 /** Rebuild PS.codeToChannel from PS.keyBindings. Called on key bind change. */

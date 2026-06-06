@@ -7,6 +7,7 @@ import { D } from './state.js';
 import { PS } from './play-state.js';
 import { t2ms } from './timing.js';
 import { playHit } from './audio.js';
+import { gaugeOnJudgment, feedFastSlow } from './gauge.js';
 
 export function getPlayJudgment(channel, curMs) {
   // channel = physical key 1-6; map to line for normal note matching
@@ -72,6 +73,12 @@ export function applyJudgment(note, diff, curMs, silent) {
   PS.playCombo++;
   if (PS.playCombo > PS.playMaxCombo) PS.playMaxCombo = PS.playCombo;
   PS.playJudgQueue.push({type, diff, t: curMs});
+  // Gauge + clear-mark lock. A locked-condition break in terminate mode (or
+  // Hard reaching 0) returns true; we only flag it — playLoop performs the
+  // actual force-end so all judgment paths funnel through one stop point.
+  if (gaugeOnJudgment(type)) PS.playForceEnded = true;
+  // Fast/Slow feedback (normal head notes only; never wide, never MISS).
+  feedFastSlow(diff, note.isWide, type);
   // Hit effect
   const li = note.isWide ? 0 : CHL[note.channel];
   let col = note.isWide ? WIDE_COLOR : '#ffffff';
@@ -102,6 +109,7 @@ export function applyTailSuccess(note, curMs) {
   rec.tailFailed = false;
   PS.playCombo++;
   if (PS.playCombo > PS.playMaxCombo) PS.playMaxCombo = PS.playCombo;
+  if (gaugeOnJudgment('TAIL_OK')) PS.playForceEnded = true;
 }
 
 /** LN mid-release — head hit but key released before tail. */
@@ -112,4 +120,5 @@ export function applyMidRelease(note, curMs) {
   rec.tailFailed = true;
   PS.playCombo = 0;
   PS.playJudgQueue.push({type: 'MISS', diff: undefined, t: curMs});
+  if (gaugeOnJudgment('TAIL_MISS')) PS.playForceEnded = true;
 }

@@ -51,6 +51,51 @@ export const JUDGE_PERFECT    = 50;
 export const JUDGE_GOOD       = 100;
 export const JUDGE_WIDE_SYNC  = 100; // Wide notes: SYNC only, ±100ms
 
+// ---- Gauge (life) system ----
+// Two real gauges: Normal (recovery-leaning) and Hard (penalty-leaning).
+// Values are in percent points applied to a 0–100 gauge. These are FIRST-PASS
+// numbers meant to be tuned after real play — keep them all in this one table.
+//
+//   Normal: clears if gauge >= NORMAL_CLEAR_PCT at song end.
+//   Hard:   starts at 100, fails the instant gauge hits 0. MISS = -5 means
+//           20 consecutive misses (20 × 5 = 100) drain a full bar, matching
+//           the "20-miss fail" intent while staying a continuous gauge.
+//
+// Tail OK / Tail MISS apply to hold-note tail resolution. Wide notes only ever
+// produce SYNC or MISS, so their PERFECT/GOOD columns are simply never hit.
+export const GAUGE_START = { normal: 0, hard: 100 };
+export const NORMAL_CLEAR_PCT = 75;
+
+export const GAUGE_DELTA = {
+  normal: { SYNC: +0.6, PERFECT: +0.5, GOOD: +0.2, MISS: -2.0, TAIL_OK: +0.4, TAIL_MISS: -1.5 },
+  hard:   { SYNC: +1.5, PERFECT: +1.2, GOOD: -2.0, MISS: -5.0, TAIL_OK: +1.0, TAIL_MISS: -4.0 },
+};
+
+// ---- Clear-mark lock options (on top of the chosen gauge) ----
+// lockTarget: which mark the player is attempting beyond a bare clear.
+//   'none' = no lock. 'fc' = Full Combo (no MISS). 'ap' = All Perfect
+//   (every judgment PERFECT or better). 'as' = All Sync (every judgment SYNC).
+// lockMode: what happens when the locked condition breaks.
+//   'terminate' = force-end immediately (State F-style stop).
+//   'cascade'   = drop down one tier (AS→AP→FC→bare gauge) and keep playing;
+//                 the final mark is the highest tier still intact at song end.
+export const LOCK_TIERS = ['as', 'ap', 'fc'];  // strict → loose; bare gauge sits below 'fc'
+
+// ---- Rank thresholds (million-point score) ----
+// Ordered high → low; first threshold the score meets wins.
+export const RANK_TABLE = [
+  ['U',  1000000],
+  ['S+',  995000],
+  ['S',   985000],
+  ['A+',  970000],
+  ['A',   950000],
+  ['B',   900000],
+  ['C',   800000],
+  ['D',   700000],
+  ['E',   500000],
+  ['F',        0],
+];
+
 // ---- Storage ----
 export const LS_PREFIX = 'cfx_';
 
