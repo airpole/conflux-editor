@@ -35,7 +35,8 @@ export function resetGauge() {
   PS.playResult = null;
   PS.fastCount = 0;
   PS.slowCount = 0;
-  PS.lastTiming = null;
+  PS.flashTiming = null;
+  PS.flashAt = 0;
 }
 
 function clampGauge(v) {
@@ -118,10 +119,21 @@ function tierBelow(tier) {
 // is curMs - noteMs: positive = late press = SLOW, negative = early = FAST.
 // |diff| within SYNC window is treated as on-time (no F/S shown), matching
 // the convention that a perfect-sync hit shouldn't nag the player.
-export function feedFastSlow(diff, isWide, kind) {
-  if (isWide || kind === 'MISS') return;
-  if (diff < 0) { PS.lastTiming = 'FAST'; PS.fastCount++; }
-  else if (diff > 0) { PS.lastTiming = 'SLOW'; PS.slowCount++; }
+// ── Fast / Slow feedback (ez2on-style) ───────────────────────
+// Fires ONLY when a normal (non-wide) note is judged PERFECT or GOOD — i.e.
+// the player hit it well but OUTSIDE the top SYNC window — to flag that the
+// hit was early (FAST, diff<0) or late (SLOW, diff>0). A SYNC hit shows
+// nothing (it was on time); MISS and Wide show nothing; autoplay shows nothing
+// (auto-judges a frame late, so every diff would read SLOW and be meaningless).
+// Sets a brief flash + bumps the session total drawn later on Result.
+export function feedFastSlow(diff, isWide, kind, curMs) {
+  if (PS.playAutoplay) return;
+  if (isWide) return;
+  if (kind !== 'PERFECT' && kind !== 'GOOD') return;   // SYNC / MISS → nothing
+  if (diff < 0) { PS.flashTiming = 'FAST'; PS.fastCount++; }
+  else if (diff > 0) { PS.flashTiming = 'SLOW'; PS.slowCount++; }
+  else return;
+  PS.flashAt = curMs;
 }
 
 // ── End-of-song evaluation ───────────────────────────────────
@@ -177,6 +189,8 @@ export function computeResult(forceEnded) {
     score, accuracy, rank, state,
     maxCombo: PS.playMaxCombo,
     counts: { sync: sCount + tailHits, perfect: pCount, good: gCount, miss: missCount },
+    fastCount: PS.fastCount,
+    slowCount: PS.slowCount,
     cleared, failed: !!forceEnded || (!cleared && !forceEnded ? (PS.gaugeType === 'normal') : false),
     forceEnded: !!forceEnded,
     options: {

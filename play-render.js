@@ -133,8 +133,10 @@ export function drawPlayHUD(ctx, gx, gy, gw, gh, curMs) {
     mode: 'play',
     // Fast/Slow feedback (Settings-toggleable; normal notes only). Only shown
     // in an active session, not in the idle editor preview.
-    fastSlow: (PS.playActive && PS.showFastSlow)
-      ? { last: PS.lastTiming, fast: PS.fastCount, slow: PS.slowCount }
+    // Fast/Slow: a single fading flash (ez2on-style). Running totals live on
+    // Result, not here. Only while a session is active and the toggle is on.
+    fastSlow: (PS.playActive && PS.showFastSlow && PS.flashTiming)
+      ? { timing: PS.flashTiming, age: curMs - PS.flashAt }
       : null
   });
 }
@@ -253,24 +255,27 @@ export function drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, opts) {
     });
   }
 
-  // Fast / Slow — under the percent row, centered. Fast (red, F) sits left of
-  // center, Slow (blue, S) right. The most-recent timing is highlighted; both
-  // running counts trail beside their letters. Hidden for MISS / wide notes
-  // (those never set lastTiming) and when the Settings toggle is off.
+  // Fast / Slow — a single word that flashes under the accuracy % when a hit
+  // lands outside the SYNC window (PERFECT/GOOD), then fades over ~500ms.
+  // "FAST" (red) = early, "SLOW" (blue) = late. No running counts here; those
+  // are on the Result screen.
   if (opts.fastSlow) {
-    const fsSz = Math.round(gw * 0.014);
-    const fsY = pctY + pctSz / 2 + G + fsSz / 2;
-    const off = gw * 0.06;
-    const fastHot = opts.fastSlow.last === 'FAST';
-    const slowHot = opts.fastSlow.last === 'SLOW';
-    ctx.font = `bold ${fsSz}px sans-serif`;
-    ctx.textAlign = 'center';
-    withShadow(gw * 0.008, () => {
-      ctx.fillStyle = fastHot ? FAST_COLOR : FAST_COLOR + '55';
-      drawTextVC(ctx, `F ${opts.fastSlow.fast}`, cx_ - off, fsY);
-      ctx.fillStyle = slowHot ? SLOW_COLOR : SLOW_COLOR + '55';
-      drawTextVC(ctx, `S ${opts.fastSlow.slow}`, cx_ + off, fsY);
-    });
+    const FS_LIFE = 500;                       // ms visible before fully gone
+    const age = opts.fastSlow.age;
+    if (age >= 0 && age < FS_LIFE) {
+      const fade = 1 - age / FS_LIFE;          // 1 → 0
+      const fsSz = Math.round(gw * 0.016);
+      const fsY = pctY + pctSz / 2 + G + fsSz / 2;
+      const isFast = opts.fastSlow.timing === 'FAST';
+      const base = isFast ? FAST_COLOR : SLOW_COLOR;
+      const alphaHex = Math.round(fade * 255).toString(16).padStart(2, '0');
+      ctx.font = `bold ${fsSz}px sans-serif`;
+      ctx.textAlign = 'center';
+      withShadow(gw * 0.008, () => {
+        ctx.fillStyle = base + alphaHex;
+        drawTextVC(ctx, isFast ? 'FAST' : 'SLOW', cx_, fsY);
+      });
+    }
   }
 
   // Bottom strip

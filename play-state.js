@@ -62,10 +62,16 @@ export const PS = {
   // break). Distinguishes a fail-stop from a natural song-end stop.
   playForceEnded: false,
 
-  // ── Fast / Slow feedback (normal Tap/Hold only; never Wide) ──
-  // lastTiming: 'FAST' | 'SLOW' | null — most recent non-MISS normal-note
-  // timing sign, shown under the judgment counters when enabled.
-  lastTiming: null,
+  // ── Fast / Slow feedback (ez2on-style) ──────────────────────
+  // Only fires when a normal (non-wide) note lands OUTSIDE the SYNC window,
+  // i.e. PERFECT or GOOD — telling the player that otherwise-good hit was
+  // early (FAST) or late (SLOW). Shown briefly under the accuracy %, then
+  // fades. Running totals are NOT drawn in-game; they appear only on Result.
+  //   flashTiming: 'FAST' | 'SLOW' | null  — what to flash right now
+  //   flashAt:     ms timestamp the flash started (for fade-out)
+  //   fastCount / slowCount: session totals, surfaced on the Result screen
+  flashTiming: null,
+  flashAt: 0,
   fastCount: 0,
   slowCount: 0,
   showFastSlow: true,      // Settings toggle

@@ -138,8 +138,13 @@ function renderResultDOM(r, best, isNewBest) {
     <div class="rs-counts">
       <div class="rs-c"><span class="rs-cl" style="color:#fff">SYNC</span><span>${counts.sync}</span></div>
       <div class="rs-c"><span class="rs-cl" style="color:#ffd23f">PERFECT</span><span>${counts.perfect}</span></div>
-      <div class="rs-c"><span class="rs-cl" style="color:#5ad1ff">GOOD</span><span>${counts.good}</span></div>
+      <div class="rs-c"><span class="rs-cl" style="color:#4aff8a">GOOD</span><span>${counts.good}</span></div>
       <div class="rs-c"><span class="rs-cl" style="color:#ff5a6a">MISS</span><span>${counts.miss}</span></div>
+    </div>
+
+    <div class="rs-fs">
+      <span style="color:#ff5a6a">FAST ${r.fastCount ?? 0}</span>
+      <span style="color:#5aa0ff">SLOW ${r.slowCount ?? 0}</span>
     </div>
 
     <div class="rs-meta">

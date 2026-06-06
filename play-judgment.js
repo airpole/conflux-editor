@@ -77,8 +77,9 @@ export function applyJudgment(note, diff, curMs, silent) {
   // Hard reaching 0) returns true; we only flag it — playLoop performs the
   // actual force-end so all judgment paths funnel through one stop point.
   if (gaugeOnJudgment(type)) PS.playForceEnded = true;
-  // Fast/Slow feedback (normal head notes only; never wide, never MISS).
-  feedFastSlow(diff, note.isWide, type);
+  // Fast/Slow feedback (normal head notes only; never wide, never MISS,
+  // never SYNC, never autoplay — handled inside feedFastSlow).
+  feedFastSlow(diff, note.isWide, type, curMs);
   // Hit effect
   const li = note.isWide ? 0 : CHL[note.channel];
   let col = note.isWide ? WIDE_COLOR : '#ffffff';
