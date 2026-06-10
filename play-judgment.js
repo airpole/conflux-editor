@@ -12,18 +12,26 @@ import { gaugeOnJudgment, feedFastSlow } from './gauge.js';
 export function getPlayJudgment(channel, curMs) {
   // channel = physical key 1-6; map to line for normal note matching
   const line = KEY2LINE[channel];
-  let best = null, bestDiff = Infinity;
+  // Among all notes whose judgment window currently contains curMs, the press
+  // resolves the EARLIEST one (smallest startTick), not the absolute-nearest.
+  // Nearest-pick lets a slightly-early input skip an older un-hit note and
+  // grab a closer later one, orphaning the older note into a MISS ("note
+  // stealing"). Earliest-pick consumes notes in the order they appear, which
+  // is the conventional rhythm-game behaviour.
+  let best = null, bestTick = Infinity;
   for (const n of D.notes) {
-    if (n.isWide) {
-      // accept any key
-    } else {
-      if (n.channel !== line) continue;
-    }
+    if (!n.isWide && n.channel !== line) continue;
     if (PS.playHitMap.has(n) || PS.playMissSet.has(n)) continue;
+    // A wide note already being sustained by another key must not be re-judged
+    // as a fresh head hit (it would double-count combo / score).
+    if (n.isWide) {
+      const held = Object.values(PS.playHoldState).includes(n);
+      if (held) continue;
+    }
     const diff = curMs - t2ms(n.startTick);
     const window = n.isWide ? JUDGE_WIDE_SYNC : JUDGE_GOOD;
-    if (Math.abs(diff) <= window && Math.abs(diff) < bestDiff) {
-      best = n; bestDiff = Math.abs(diff);
+    if (Math.abs(diff) <= window && n.startTick < bestTick) {
+      best = n; bestTick = n.startTick;
     }
   }
   return best ? {note: best, diff: curMs - t2ms(best.startTick)} : null;

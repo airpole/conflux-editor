@@ -44,9 +44,34 @@ export function loadChartData(d) {
   }
   if (d.tempo) D.tempo = d.tempo;
   if (!D.tempo || D.tempo.length === 0) D.tempo = [{tick: 0, bpm: 120}];
+  // Sanitize tempo: a non-positive / non-finite BPM makes ms-per-tick
+  // Infinity or NaN, which poisons every t2ms() call and breaks the whole
+  // chart. Drop bad entries and clamp ticks; guarantee a tick-0 anchor.
+  D.tempo = D.tempo
+    .filter(e => e && Number.isFinite(e.bpm) && e.bpm > 0)
+    .map(e => ({ tick: Math.max(0, Math.floor(Number(e.tick) || 0)), bpm: e.bpm }));
+  if (D.tempo.length === 0) D.tempo = [{tick: 0, bpm: 120}];
+  if (!D.tempo.some(e => e.tick === 0)) D.tempo.unshift({tick: 0, bpm: 120});
+
   if (d.timeSignatures) D.timeSignatures = d.timeSignatures;
   if (!D.timeSignatures || D.timeSignatures.length === 0) {
     D.timeSignatures = [{tick: 0, numerator: 4, denominator: 4}];
+  }
+  // Sanitize time signatures: numerator/denominator must be positive integers
+  // (denominator 0 would divide-by-zero in measure math). Keep a tick-0 anchor.
+  D.timeSignatures = D.timeSignatures
+    .filter(e => e && Number.isFinite(e.numerator) && e.numerator > 0
+                   && Number.isFinite(e.denominator) && e.denominator > 0)
+    .map(e => ({
+      tick: Math.max(0, Math.floor(Number(e.tick) || 0)),
+      numerator: Math.floor(e.numerator),
+      denominator: Math.floor(e.denominator),
+    }));
+  if (D.timeSignatures.length === 0) {
+    D.timeSignatures = [{tick: 0, numerator: 4, denominator: 4}];
+  }
+  if (!D.timeSignatures.some(e => e.tick === 0)) {
+    D.timeSignatures.unshift({tick: 0, numerator: 4, denominator: 4});
   }
   if (d.shapeEvents) {
     D.shapeEvents = d.shapeEvents;

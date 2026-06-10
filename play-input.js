@@ -1,10 +1,8 @@
 // ============================================================
 //  PLAY-INPUT — keyboard handlers + pause click on game canvas
 // ============================================================
-import { JUDGE_GOOD } from './constants.js';
 import { PS } from './play-state.js';
 import { AS } from './audio-state.js';
-import { t2ms } from './timing.js';
 import { getPlayJudgment, applyJudgment, applyTailSuccess, applyMidRelease } from './play-judgment.js';
 
 export function handlePlayKeyDown(code) {
@@ -20,12 +18,16 @@ export function handlePlayKeyDown(code) {
       PS.playHoldState[ch] = result.note;
     }
   } else if (!PS.playHoldState[ch]) {
-    // Wide hold transfer: share with another key currently holding a wide note
+    // Wide hold transfer: a wide LN may be sustained by any key. If another
+    // key is currently holding a wide note whose tail is still in the future,
+    // let this key share the hold too. We require the source note's tail to be
+    // unresolved so a finished/failed note can't be "re-grabbed" to farm combo.
     for (const [otherCh, note] of Object.entries(PS.playHoldState)) {
-      if (note.isWide && +otherCh !== ch) {
-        PS.playHoldState[ch] = note;
-        break;
-      }
+      if (!note.isWide || +otherCh === ch) continue;
+      const rec = PS.playHitMap.get(note);
+      if (!rec || !rec.isLN || rec.tailDone) continue;
+      PS.playHoldState[ch] = note;
+      break;
     }
   }
 }
@@ -35,11 +37,22 @@ export function handlePlayKeyUp(code) {
   const ch = PS.codeToChannel[code];
   if (!ch) return;
   PS.playKeyHeld.delete(ch);
-  if (PS.playHoldState[ch]) {
-    const note = PS.playHoldState[ch];
-    delete PS.playHoldState[ch];
-    // Wide hold: try to transfer to any other held key
-    if (note.isWide) {
+  if (!PS.playHoldState[ch]) return;
+
+  const note = PS.playHoldState[ch];
+  delete PS.playHoldState[ch];
+
+  const rec = PS.playHitMap.get(note);
+  // Tail already resolved (success via the per-frame check in playLoop, or a
+  // prior mid-release): nothing to do.
+  if (!rec || !rec.isLN || rec.tailDone) return;
+
+  // Wide hold: if any other key is still pressed and not already holding a
+  // note, transfer the sustain to it so the LN keeps going. We only transfer
+  // while the tail is still in the future (rec.tailDone is false here).
+  if (note.isWide) {
+    const curMsW = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate;
+    if (curMsW < rec.tailMs) {
       for (const heldCh of PS.playKeyHeld) {
         if (!PS.playHoldState[heldCh]) {
           PS.playHoldState[heldCh] = note;
@@ -47,14 +60,17 @@ export function handlePlayKeyUp(code) {
         }
       }
     }
-    // Phase 6 D2: classify mid-release vs tail success based on timing.
-    const curMs = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate;
-    const tailMs = t2ms(note.startTick + note.duration);
-    if (curMs < tailMs - JUDGE_GOOD) {
-      applyMidRelease(note, curMs);
-    } else {
-      applyTailSuccess(note, curMs);
-    }
+  }
+
+  // Classify the release. The per-frame tail check in playLoop already grants
+  // success at the exact tail moment for notes still held, so reaching here
+  // means the key was lifted before that check fired. Released at/after the
+  // tail (same frame) → success; released before the tail → mid-release MISS.
+  const curMs = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate;
+  if (curMs >= rec.tailMs) {
+    applyTailSuccess(note, curMs);
+  } else {
+    applyMidRelease(note, curMs);
   }
 }
 

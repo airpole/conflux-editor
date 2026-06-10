@@ -61,21 +61,38 @@ export function playHitAt(when) {
 
 export function setPlaybackRate(val) {
   const newRate = Math.max(0.5, Math.min(1.0, val / 100));
-  // Re-anchor audio timing if currently playing
+  // Capture both clocks ONCE up front so the audio and play-session
+  // re-anchors describe the same instant. Reading performance.now() twice
+  // (as before) let a few ms leak between the two anchors, drifting the
+  // judgment clock from the audio clock on every rate change.
+  const nowPerf = performance.now();
+  const nowCtx = AS.actx ? AS.actx.currentTime : 0;
+  const oldRate = AS.playbackRate;
+
+  // Re-anchor audio timing if currently playing (convert elapsed at OLD rate).
   if (AS.asrc && AS.actx) {
-    const elapsed = AS.actx.currentTime - AS.audStartCtxTime;
-    AS.audStartSec = AS.audStartSec + elapsed * AS.playbackRate;
-    AS.audStartCtxTime = AS.actx.currentTime;
+    const elapsed = nowCtx - AS.audStartCtxTime;
+    AS.audStartSec = AS.audStartSec + elapsed * oldRate;
+    AS.audStartCtxTime = nowCtx;
     try { AS.asrc.playbackRate.value = newRate; } catch (e) {}
   }
-  // Re-anchor play session timing
+  // Re-anchor play session timing against the SAME performance.now() reading.
+  let curMs = null;
   if (PS.playActive) {
-    const curMs = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate;
+    curMs = PS.playOffMs + (nowPerf - PS.playT0) * oldRate;
     PS.playOffMs = curMs;
-    PS.playT0 = performance.now();
+    PS.playT0 = nowPerf;
   }
   AS.playbackRate = newRate;
   $('rateLbl').textContent = AS.playbackRate.toFixed(2) + 'x';
+
+  // Hitsounds pre-scheduled under the old rate now point at the wrong audio
+  // time. Rebind the scheduler from the current position so the next frame
+  // re-queues the lookahead window against the new rate. (Only relevant in an
+  // active autoplay session; manual play emits hits on key press, not ahead.)
+  if (PS.playActive && curMs !== null) {
+    import('./scheduler.js').then(m => m.resetHitScheduler(curMs)).catch(() => {});
+  }
 }
 
 export function playMetronome(isDownbeat) {

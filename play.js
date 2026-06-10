@@ -67,6 +67,19 @@ function playLoop(ts) {
           if (gaugeOnJudgment('MISS')) PS.playForceEnded = true;
         }
       );
+      // LN tail completion (manual). A held LN succeeds at the exact tail
+      // moment — combo rises here, NOT when the key is later released. keyup
+      // only handles early release (mid-release MISS). Iterating playHoldState
+      // mirrors the autoplay tail loop above so both paths resolve identically.
+      for (const ch of Object.keys(PS.playHoldState)) {
+        const note = PS.playHoldState[ch];
+        const rec = PS.playHitMap.get(note);
+        if (!rec || !rec.isLN || rec.tailDone) { delete PS.playHoldState[ch]; continue; }
+        if (curMs >= rec.tailMs) {
+          applyTailSuccess(note, curMs);
+          delete PS.playHoldState[ch];
+        }
+      }
     }
   }
   // ── Force-end (gauge death / terminate-mode lock break) ──────
@@ -113,6 +126,17 @@ function playLoop(ts) {
  * a later step; for now the outcome lives on PS.playResult.)
  */
 function finalizePlay(forceEnded) {
+  // Resolve any LN whose head was hit but whose tail never completed. On a
+  // natural end the per-frame tail check has already finished held notes, so
+  // this only catches force-end (fail-stop) cases where the player was still
+  // holding — those tails are charged as failed so the result reflects them
+  // instead of silently dropping the tail point.
+  for (const rec of PS.playHitMap.values()) {
+    if (rec.isLN && !rec.tailDone) {
+      rec.tailDone = true;
+      rec.tailFailed = true;
+    }
+  }
   if (forceEnded) {
     for (const n of D.notes) {
       if (!PS.playHitMap.has(n) && !PS.playMissSet.has(n)) PS.playMissSet.add(n);
