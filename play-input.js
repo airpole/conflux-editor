@@ -47,10 +47,15 @@ export function handlePlayKeyUp(code) {
   // prior mid-release): nothing to do.
   if (!rec || !rec.isLN || rec.tailDone) return;
 
-  // Wide hold: if any other key is still pressed and not already holding a
-  // note, transfer the sustain to it so the LN keeps going. We only transfer
-  // while the tail is still in the future (rec.tailDone is false here).
+  // Wide hold: a wide LN is sustained as long as ANY key still holds it.
   if (note.isWide) {
+    // If another channel still references this same note, this release is just
+    // one finger lifting off a multi-key hold — the note continues, no judgment.
+    for (const heldCh of Object.keys(PS.playHoldState)) {
+      if (PS.playHoldState[heldCh] === note) return;
+    }
+    // No channel holds it anymore. If another key is still physically pressed
+    // and free, hand the sustain to it so the LN keeps going (tail still ahead).
     const curMsW = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate;
     if (curMsW < rec.tailMs) {
       for (const heldCh of PS.playKeyHeld) {
