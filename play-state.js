@@ -31,6 +31,10 @@ export const PS = {
   playT0: 0,
   playOffMs: 0,
   playAudioStarted: false,
+  // Play-time ms at which audio should come online. 0 for from-beginning
+  // (audio starts when the lead-in crosses zero); the selected position for
+  // mid-chart starts (Space), so the resume lead-in scrolls silently.
+  playAudioStartAtMs: 0,
 
   playHitMap: new Map(),
   playMissSet: new Set(),
@@ -41,6 +45,9 @@ export const PS = {
 
   playHoldState: {},
   playKeyHeld: new Set(),
+  // channel -> play-time ms of the most recent keydown. Drives the lane
+  // key-beam flash in game-render (visual input feedback).
+  playKeyPressMs: {},
 
   playRAF: null,
   seekDragMs: null,

@@ -1,7 +1,7 @@
 // ============================================================
 //  PLAY-RENDER — Play canvas (idle + active), HUD, fullscreen
 // ============================================================
-import { $, GAUGE_COLOR, FAST_COLOR, SLOW_COLOR } from './constants.js';
+import { $, GAUGE_COLOR, FAST_COLOR, SLOW_COLOR, CHL, KEY2LINE } from './constants.js';
 import { D } from './state.js';
 import { ES } from './editor-state.js';
 import { PS } from './play-state.js';
@@ -49,6 +49,32 @@ export function _ensurePlayCanvasSized(cv, containerEl) {
 export const _EMPTY_HITMAP  = new Map();
 export const _EMPTY_MISSSET = new Set();
 
+// ── Key beams (input visual feedback) ────────────────────────
+// Per-line beam alpha from current key state: steady glow while a mapped key
+// is held, plus a flash decaying over ~160ms after each press. Keys 2/4 and
+// 3/5 share lines; the brighter of the two wins.
+const _BEAM_HOLD_A = 0.12, _BEAM_FLASH_A = 0.30, _BEAM_FLASH_MS = 160;
+function buildKeyBeams(curMs) {
+  if (PS.playAutoplay) return [];
+  const byLine = new Map();   // line index 0-3 → alpha
+  for (const ch of PS.playKeyHeld) {
+    const li = CHL[KEY2LINE[ch]];
+    if (li == null) continue;
+    byLine.set(li, Math.max(byLine.get(li) || 0, _BEAM_HOLD_A));
+  }
+  const press = PS.playKeyPressMs || {};
+  for (const chStr of Object.keys(press)) {
+    const age = curMs - press[chStr];
+    if (age < 0 || age > _BEAM_FLASH_MS) continue;
+    const li = CHL[KEY2LINE[chStr]];
+    if (li == null) continue;
+    const a = _BEAM_HOLD_A + _BEAM_FLASH_A * (1 - age / _BEAM_FLASH_MS);
+    byLine.set(li, Math.max(byLine.get(li) || 0, a));
+  }
+  if (!byLine.size) return [];
+  return [...byLine].map(([li, a]) => ({ li, a }));
+}
+
 // ── Main draw entry points ───────────────────────────────────
 export function drawPlayScreen(cv, curMs) {
   const ctx = cv.getContext('2d');
@@ -68,6 +94,7 @@ export function drawPlayScreen(cv, curMs) {
     missSet: PS.playMissSet,
     showMissColor: true,
     showInvalid: true,   // Phase: surface unplayable overlaps in live Play too
+    keyBeams: buildKeyBeams(curMs),   // lane input feedback (manual play only)
     gauge: { value: PS.gaugeValue, type: PS.gaugeType, color: GAUGE_COLOR[PS.gaugeType] }   // judgment line → life bar
   });
   drawPlayHUD(ctx, gx, gy, gw, gh, curMs);

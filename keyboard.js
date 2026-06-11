@@ -15,7 +15,8 @@ import { toggleGP } from './grid-picker.js';
 import { renderKeyCfg, startKeyConfig, assignKeyConfig } from './key-config.js';
 import { handlePlayKeyDown, handlePlayKeyUp } from './play-input.js';
 import { toggleEdPlay } from './edit-playback.js';
-import { playToggle, stopPlay } from './play.js';
+import { playToggle, playRestart, stopPlay } from './play.js';
+import { setGauge, setLockTarget, setLockMode, toggleFastSlow } from './play-options.js';
 import { drawN } from './notes-render.js';
 import { drawS } from './shape-render.js';
 
@@ -114,13 +115,54 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
-  // Space = Play/Pause
+  // Space = Play/Pause. On the Play tab this starts from the CURRENT position
+  // (with a silent 3s shape lead-in); Enter below restarts from the beginning.
   if (key === ' ') {
     e.preventDefault();
     if (ES.activeTab === 'note') toggleEdPlay('n');
     else if (ES.activeTab === 'shape') toggleEdPlay('s');
     else if (ES.activeTab === 'play') playToggle();
     return;
+  }
+
+  // Play tab shortcuts (idle only — during a session every key is game input).
+  if (ES.activeTab === 'play') {
+    if (e.key === 'Enter') {            // Enter = restart from the beginning
+      e.preventDefault();
+      playRestart();
+      return;
+    }
+    if (key === 'g') {                  // G = gauge Normal ↔ Hard
+      setGauge(PS.gaugeType === 'normal' ? 'hard' : 'normal');
+      toast(`게이지: ${PS.gaugeType === 'hard' ? 'Hard' : 'Normal'}`);
+      return;
+    }
+    if (key === 'l') {                  // L = lock target None→FC→AP→AS
+      const cyc = ['none', 'fc', 'ap', 'as'];
+      const next = cyc[(cyc.indexOf(PS.lockTarget) + 1) % cyc.length];
+      setLockTarget(next);
+      toast(`잠금 목표: ${next.toUpperCase()}`);
+      return;
+    }
+    if (key === 'm') {                  // M = lock mode Term ↔ Casc
+      setLockMode(PS.lockMode === 'terminate' ? 'cascade' : 'terminate');
+      toast(`잠금 모드: ${PS.lockMode === 'cascade' ? 'Cascade' : 'Terminate'}`);
+      return;
+    }
+    if (key === 'f') {                  // F = Fast/Slow display toggle
+      toggleFastSlow();
+      toast(`Fast/Slow 표시: ${PS.showFastSlow ? 'ON' : 'OFF'}`);
+      return;
+    }
+    if (key === 'a') {                  // A = autoplay toggle
+      const chk = document.getElementById('playAutoChk');
+      if (chk && !chk.disabled) {
+        chk.checked = !chk.checked;
+        PS.playAutoplay = chk.checked;
+        toast(`오토플레이: ${chk.checked ? 'ON' : 'OFF'}`);
+      }
+      return;
+    }
   }
 
   if (key === 'escape') {

@@ -12,28 +12,38 @@ import { gaugeOnJudgment, feedFastSlow } from './gauge.js';
 export function getPlayJudgment(channel, curMs) {
   // channel = physical key 1-6; map to line for normal note matching
   const line = KEY2LINE[channel];
-  // Among all notes whose judgment window currently contains curMs, the press
-  // resolves the EARLIEST one (smallest startTick), not the absolute-nearest.
-  // Nearest-pick lets a slightly-early input skip an older un-hit note and
-  // grab a closer later one, orphaning the older note into a MISS ("note
-  // stealing"). Earliest-pick consumes notes in the order they appear, which
-  // is the conventional rhythm-game behaviour.
-  let best = null, bestTick = Infinity;
+  // Two separate candidate searches, because normal and wide notes compete
+  // differently for a key press:
+  //   • A NORMAL note can ONLY be hit by its own lane's key.
+  //   • A WIDE note accepts ANY key.
+  // So when a wide and a normal coincide, the lane key must take the normal
+  // (its only possible hitter) and let some other key satisfy the wide. If we
+  // judged them in one pool the wide could be picked first and orphan the
+  // normal into a MISS — the "input eaten" bug on wide+normal chords.
+  //
+  // Within each class we pick the EARLIEST note in window (smallest startTick),
+  // not the absolute-nearest, so a slightly-early input can't skip an older
+  // un-hit note and steal a closer later one.
+  let bestNormal = null, bestNormalTick = Infinity;
+  let bestWide = null, bestWideTick = Infinity;
   for (const n of D.notes) {
-    if (!n.isWide && n.channel !== line) continue;
     if (PS.playHitMap.has(n) || PS.playMissSet.has(n)) continue;
-    // A wide note already being sustained by another key must not be re-judged
-    // as a fresh head hit (it would double-count combo / score).
+    const diff = Math.abs(curMs - t2ms(n.startTick));
     if (n.isWide) {
-      const held = Object.values(PS.playHoldState).includes(n);
-      if (held) continue;
-    }
-    const diff = curMs - t2ms(n.startTick);
-    const window = n.isWide ? JUDGE_WIDE_SYNC : JUDGE_GOOD;
-    if (Math.abs(diff) <= window && n.startTick < bestTick) {
-      best = n; bestTick = n.startTick;
+      // A wide note already sustained by another key must not be re-judged as
+      // a fresh head hit (it would double-count combo / score).
+      if (Object.values(PS.playHoldState).includes(n)) continue;
+      if (diff <= JUDGE_WIDE_SYNC && n.startTick < bestWideTick) {
+        bestWide = n; bestWideTick = n.startTick;
+      }
+    } else {
+      if (n.channel !== line) continue;
+      if (diff <= JUDGE_GOOD && n.startTick < bestNormalTick) {
+        bestNormal = n; bestNormalTick = n.startTick;
+      }
     }
   }
+  const best = bestNormal || bestWide;   // normal (lane-specific) wins ties
   return best ? {note: best, diff: curMs - t2ms(best.startTick)} : null;
 }
 
@@ -127,6 +137,11 @@ export function applyMidRelease(note, curMs) {
   if (!rec || !rec.isLN || rec.tailDone) return;
   rec.tailDone = true;
   rec.tailFailed = true;
+  // Cut the hold effect short: its endMs was the tail time, which kept the
+  // ripple glowing on a broken hold. Clamping to now lets it fade immediately.
+  for (const h of PS.playEffects) {
+    if (h.note === note && h.endMs > curMs) h.endMs = curMs;
+  }
   PS.playCombo = 0;
   PS.playJudgQueue.push({type: 'MISS', diff: undefined, t: curMs});
   if (gaugeOnJudgment('TAIL_MISS')) PS.playForceEnded = true;

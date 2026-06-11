@@ -1,7 +1,7 @@
 // ============================================================
 //  PLAY — playLoop + startPlay / stopPlay + control wrappers
 // ============================================================
-import { $, LEAD_IN_MS } from './constants.js';
+import { $, LEAD_IN_MS, PLAY_RESUME_LEAD_MS } from './constants.js';
 import { D } from './state.js';
 import { ES } from './editor-state.js';
 import { PS } from './play-state.js';
@@ -23,10 +23,13 @@ import { toast } from './utility.js';
 function playLoop(ts) {
   if (!PS.playActive) return;
   const curMs = PS.playOffMs + (ts - PS.playT0) * AS.playbackRate;
-  // Lead-in: start audio when curMs crosses 0
-  if (!PS.playAudioStarted && curMs >= 0) {
+  // Audio gate: start the buffer when curMs crosses the session's audio
+  // start point (0 for from-beginning; the selected position for mid-chart
+  // starts, after the silent resume lead-in). startAud(curMs+offset) syncs
+  // the buffer to the actual frame time, so frame quantization can't desync.
+  if (!PS.playAudioStarted && curMs >= (PS.playAudioStartAtMs || 0)) {
     PS.playAudioStarted = true;
-    startAud(D.metadata.offset);
+    startAud(curMs + D.metadata.offset);
     // Rebind the hit scheduler at the exact moment audio comes online.
     // resetHitScheduler in startPlay was based on the negative lead-in
     // timestamp; by the time PS.playAudioStarted flips to true, the loop
@@ -185,7 +188,12 @@ function _startPlayImpl(fromBeginning, autoplay) {
   const autoChkEl = $('playAutoChk');
   if (autoChkEl) PS.playAutoplay = !!autoChkEl.checked;
 
-  const offMs = fromBeginning ? -LEAD_IN_MS : ES.sharedMs;
+  // From-beginning: classic negative lead-in, audio at 0. Mid-chart (Space):
+  // start PLAY_RESUME_LEAD_MS early so empty shapes scroll in silence, with
+  // notes and audio beginning at the selected position itself.
+  const resumeFrom = Math.max(0, ES.sharedMs);
+  const offMs = fromBeginning ? -LEAD_IN_MS : resumeFrom - PLAY_RESUME_LEAD_MS;
+  PS.playAudioStartAtMs = fromBeginning ? 0 : resumeFrom;
   PS.playOffMs = offMs;
   PS.playActive = true;
   PS.playStartedFromBeginning = !!fromBeginning;
@@ -202,11 +210,16 @@ function _startPlayImpl(fromBeginning, autoplay) {
   PS.playHitMap.clear(); PS.playMissSet.clear(); PS.playEffects = [];
   PS.playCombo = 0; PS.playMaxCombo = 0; PS.playJudgQueue = [];
   PS.playHoldState = {}; PS.playKeyHeld.clear();
+  PS.playKeyPressMs = {};
 
   // Gauge / clear-mark lock + Fast-Slow counters reset for the new session.
   resetGauge();
 
-  seedPlayStateFromCurMs(offMs);
+  // Seed everything before the playable region: for mid-chart starts that is
+  // the SELECTED position, not the lead-in start — notes inside the silent
+  // lead-in window are pre-resolved so the run-up stays visually empty and
+  // unjudged, exactly as if the chart began at the selected point.
+  seedPlayStateFromCurMs(fromBeginning ? offMs : resumeFrom);
 
   resetMissChecker(offMs);
   resetHitScheduler(offMs);
@@ -224,19 +237,21 @@ function _startPlayImpl(fromBeginning, autoplay) {
     rszActiveCanvas();
   }
 
-  if (!fromBeginning) {
-    startAud(offMs + D.metadata.offset);
-    PS.playAudioStarted = true;
-  }
+  // Audio comes online inside playLoop when curMs crosses
+  // PS.playAudioStartAtMs — both for the from-beginning lead-in (target 0)
+  // and the silent resume lead-in (target = selected position).
   PS.playT0 = performance.now();
   PS.playRAF = requestAnimationFrame(playLoop);
 }
 
 export function stopPlay() {
   if (!PS.playActive) return;
-  // Snapshot current play position so the next ▶ resumes from there.
+  // Snapshot current play position so the next ▶ resumes from there. If the
+  // session was stopped during the silent resume lead-in (audio not yet
+  // started), keep the previously selected position instead of rewinding
+  // into the lead-in window.
   const curMs = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate;
-  if (isFinite(curMs) && curMs > 0) {
+  if (isFinite(curMs) && curMs > 0 && PS.playAudioStarted) {
     ES.sharedMs = Math.min(curMs, ES.totalMs || curMs);
   }
   PS.playActive = false;
@@ -322,6 +337,8 @@ export function playSeekTo(v) {
   PS.playHitMap.clear(); PS.playMissSet.clear(); PS.playEffects = [];
   PS.playCombo = 0; PS.playMaxCombo = 0; PS.playJudgQueue = [];
   PS.playHoldState = {}; PS.playKeyHeld.clear();
+  PS.playKeyPressMs = {};
+  PS.playAudioStartAtMs = Math.max(0, ms);
   seedPlayStateFromCurMs(ms);
   resetMissChecker(ms);
   resetHitScheduler(ms);

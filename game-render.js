@@ -76,6 +76,8 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     let drawSt = wst;
     const wIsHit = opts.hitMap.has(wn);
     const wIsMiss = opts.missSet && opts.missSet.has(wn);
+    // Pre-seeded future note (resume lead-in seeding): keep the run-up empty.
+    if (wIsHit && wnMs > curMs + 150) continue;
     const wHitRec = wIsHit ? opts.hitMap.get(wn) : null;
     const wIsMidRelease = !!(wHitRec && wHitRec.isLN && wHitRec.tailFailed);
     if (wIsHit && !wIsMiss && !wIsMidRelease) {
@@ -198,6 +200,11 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     let isHit, isMissed;
     isHit = opts.hitMap.has(n);
     isMissed = opts.missSet && opts.missSet.has(n);
+    // A note marked hit while still well in the future can only be a
+    // pre-seeded one (mid-chart resume lead-in / seek seeding) — hide it so
+    // the silent run-up shows empty shapes. Legit early hits sit within the
+    // judgment window (≤100ms ahead), comfortably inside the 150ms margin.
+    if (isHit && nMs > curMs + 150) { _gfState.set(n, null); continue; }
     const hitRec = isHit ? opts.hitMap.get(n) : null;
     const isMidRelease = !!(hitRec && hitRec.isLN && hitRec.tailFailed);
     let alpha = 1;
@@ -282,6 +289,32 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
       }
     }
     ctx.globalAlpha = 1;
+  }
+
+  // Key beams — input feedback. A soft light rises from the judgment line on
+  // each lane whose key is pressed: steady glow while held, brighter flash
+  // right after the press. opts.keyBeams = [{li, a}] (line index 0-3, alpha),
+  // supplied only by live Play; editor/idle previews omit it.
+  if (opts.keyBeams && opts.keyBeams.length) {
+    const infoB = getTkInfo(curTk);
+    const shB = infoB.sh, linesB = infoB.lines;
+    const blx = p2x(shB.left), brx = p2x(shB.right), bsw = brx - blx;
+    const beamTop = Math.max(gy, jY - gh * 0.22);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const b of opts.keyBeams) {
+      let cum = 0;
+      for (let k = 0; k < b.li; k++) cum += linesB[k] / 100;
+      const x0 = blx + cum * bsw;
+      const w = (linesB[b.li] / 100) * bsw;
+      if (!(Math.abs(w) > 0.5)) continue;
+      const grad = ctx.createLinearGradient(0, jY, 0, beamTop);
+      grad.addColorStop(0, `rgba(255,255,255,${Math.min(0.6, b.a).toFixed(3)})`);
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(Math.min(x0, x0 + w), beamTop, Math.abs(w), jY - beamTop);
+    }
+    ctx.restore();
   }
 
   // Judgment line — doubles as the life-gauge bar during a live session.

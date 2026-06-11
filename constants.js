@@ -38,6 +38,15 @@ export const GDIVS = [1,2,3,4,6,8,12,16,24,32,48,64];
 
 // ---- Lead-in ----
 export const LEAD_IN_MS = 2000;
+// Lead-in for mid-chart starts (Space): the session begins this many ms
+// before the selected position, showing empty scrolling shapes so the player
+// can sync up before the first live note arrives. Audio starts at the
+// selected position itself.
+export const PLAY_RESUME_LEAD_MS = 3000;
+// LN release forgiveness: lifting the key up to this many ms before the tail
+// still counts as a successful tail. Releasing exactly on the tail is humanly
+// impossible; without this grace every well-timed release broke combo.
+export const LN_RELEASE_GRACE_MS = 50;
 
 // ---- Tab routing ----
 export const TAB_MAP = {note:'noteP', shape:'shapeP', meta:'metaP', play:'playP'};
