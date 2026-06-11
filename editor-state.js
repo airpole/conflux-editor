@@ -32,7 +32,7 @@ export const ES = {
   nFollow: true, sFollow: true,
 
   // Preview/render settings
-  pvSpd: 3.0, nThk: 12, hitVol: 1.0,
+  pvSpd: 3.0, nThk: 15, hitVol: 1.0,
 
   // Pending operations
   pendLN: null,

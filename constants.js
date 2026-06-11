@@ -54,7 +54,7 @@ export const LN_RELEASE_GRACE_MS = 50;
 export const TAB_MAP = {note:'noteP', shape:'shapeP', meta:'metaP', play:'playP'};
 
 // ---- Play mode keys ----
-export const DEFAULT_KEYS = {1:'KeyE', 2:'KeyR', 3:'KeyV', 4:'KeyN', 5:'KeyU', 6:'KeyI'};
+export const DEFAULT_KEYS = {1:'KeyE', 2:'KeyR', 3:'Space', 4:'Numpad0', 5:'Numpad8', 6:'Numpad9'};
 
 // ---- Judgment windows (ms) ----
 export const JUDGE_SYNC       = 25;
