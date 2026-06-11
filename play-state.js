@@ -51,6 +51,9 @@ export const PS = {
 
   playRAF: null,
   seekDragMs: null,
+  // True if any moment of the current session ran below 1.0x — checked at
+  // finalize so a last-second rate bump can't re-qualify a slowed run.
+  playUsedSlowRate: false,
 
   // ── Gauge / clear-mark lock (game mode) ──────────────────────
   // Set before a session (from Music Select inline options); reset values are

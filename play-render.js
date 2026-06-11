@@ -129,7 +129,11 @@ export function drawPlayIdle() {
 export function drawPlayHUD(ctx, gx, gy, gw, gh, curMs) {
   let sCount = 0, pCount = 0, gCount = 0;
   let tailHits = 0, midReleases = 0;
+  let seededUnits = 0;
   for (const rec of PS.playHitMap.values()) {
+    // Seeded notes (mid-chart start / seek) are excluded from both sides of
+    // the ratio — must match computeResult so HUD and Result never disagree.
+    if (rec.seeded) { seededUnits += rec.isLN ? 2 : 1; continue; }
     if (rec.headType === 'SYNC') sCount++;
     else if (rec.headType === 'PERFECT') pCount++;
     else if (rec.headType === 'GOOD') gCount++;
@@ -143,7 +147,7 @@ export function drawPlayHUD(ctx, gx, gy, gw, gh, curMs) {
     headMissPoints += (n.duration > 0 ? 2 : 1);
   }
   const mCount = headMissPoints + midReleases;
-  const total = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0);
+  const total = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0) - seededUnits;
   // Score (million): SYNC/PERFECT = full, GOOD = half, MISS = 0. Matches the
   // design doc §5 and gauge.js computeResult so HUD and Result never disagree.
   const scoreNum = sCount + tailHits + pCount + gCount * 0.5;

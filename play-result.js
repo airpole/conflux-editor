@@ -76,7 +76,10 @@ let _retryCb = null;
 export function showResult(result, onRetry) {
   if (!result) return;
   _retryCb = onRetry || null;
-  const isNewBest = saveBest(result);
+  // Practice-style sessions (mid-chart start, reduced rate) display their
+  // result but never touch the stored best — recordEligible is stamped by
+  // finalizePlay; treat absence as eligible for backward compatibility.
+  const isNewBest = (result.recordEligible !== false) ? saveBest(result) : false;
   const best = getBest();
   renderResultDOM(result, best, isNewBest);
   const ov = document.getElementById('resultOv');

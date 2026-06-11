@@ -135,6 +135,7 @@ function finalizePlay(forceEnded) {
   // holding — those tails are charged as failed so the result reflects them
   // instead of silently dropping the tail point.
   for (const rec of PS.playHitMap.values()) {
+    if (rec.seeded) continue;   // seeded spanning LNs were never the player's to hold
     if (rec.isLN && !rec.tailDone) {
       rec.tailDone = true;
       rec.tailFailed = true;
@@ -146,6 +147,13 @@ function finalizePlay(forceEnded) {
     }
   }
   const result = computeResult(forceEnded);
+  // Record eligibility: best records only count full runs at 1.0x. Mid-chart
+  // starts (Space) carry seeded auto-SYNCs and reduced playback rate makes
+  // every window easier — both would let partial/slowed sessions overwrite
+  // legitimate bests. Stamped here because stopPlay() resets the flags.
+  result.recordEligible = !!PS.playStartedFromBeginning
+                          && !PS.playUsedSlowRate
+                          && AS.playbackRate >= 1;
   const wasAutoplay = PS.playAutoplay;
   stopPlay();
   // Autoplay runs are practice — no Result/record. Manual sessions show the
@@ -211,6 +219,7 @@ function _startPlayImpl(fromBeginning, autoplay) {
   PS.playCombo = 0; PS.playMaxCombo = 0; PS.playJudgQueue = [];
   PS.playHoldState = {}; PS.playKeyHeld.clear();
   PS.playKeyPressMs = {};
+  PS.playUsedSlowRate = AS.playbackRate < 1;
 
   // Gauge / clear-mark lock + Fast-Slow counters reset for the new session.
   resetGauge();
@@ -271,15 +280,20 @@ export function stopPlay() {
   $('playBtn').textContent = '▶';
 
   if (!PS.playAutoplay) {
-    const cnt = [...PS.playHitMap.values()].reduce((a, v) => {
-      if (v.headType === 'SYNC') a.sync++;
-      else if (v.headType === 'PERFECT') a.perfect++;
-      else if (v.headType === 'GOOD') a.good++;
-      return a;
-    }, {sync: 0, perfect: 0, good: 0});
+    const cnt = {sync: 0, perfect: 0, good: 0, tails: 0};
+    for (const v of PS.playHitMap.values()) {
+      if (v.seeded) continue;            // pre-seeded notes are not the player's hits
+      if (v.headType === 'SYNC') cnt.sync++;
+      else if (v.headType === 'PERFECT') cnt.perfect++;
+      else if (v.headType === 'GOOD') cnt.good++;
+      if (v.isLN && v.tailDone && !v.tailFailed) cnt.tails++;
+    }
     const sC = cnt.sync, pC = cnt.perfect, gC = cnt.good;
     const total = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0);
-    const acc = total > 0 ? ((sC + pC * 0.9 + gC * 0.5) / total * 100) : 0;
+    // Same weighting as computeResult (SYNC 100 / PERFECT 70 / GOOD 30), and
+    // successful LN tails count as full hits — the old toast ignored tails,
+    // understating accuracy on every chart with holds.
+    const acc = total > 0 ? ((sC + cnt.tails + pC * 0.7 + gC * 0.3) / total * 100) : 0;
     toast(`SYNC:${sC} PERFECT:${pC} GOOD:${gC} MISS:${PS.playMissSet.size} | ${acc.toFixed(1)}% | Combo:${PS.playMaxCombo}`);
   }
 

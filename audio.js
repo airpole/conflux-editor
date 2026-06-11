@@ -84,6 +84,7 @@ export function setPlaybackRate(val) {
     PS.playT0 = nowPerf;
   }
   AS.playbackRate = newRate;
+  if (PS.playActive && newRate < 1) PS.playUsedSlowRate = true;
   $('rateLbl').textContent = AS.playbackRate.toFixed(2) + 'x';
 
   // Hitsounds pre-scheduled under the old rate now point at the wrong audio

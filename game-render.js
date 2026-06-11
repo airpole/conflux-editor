@@ -76,9 +76,9 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     let drawSt = wst;
     const wIsHit = opts.hitMap.has(wn);
     const wIsMiss = opts.missSet && opts.missSet.has(wn);
-    // Pre-seeded future note (resume lead-in seeding): keep the run-up empty.
-    if (wIsHit && wnMs > curMs + 150) continue;
     const wHitRec = wIsHit ? opts.hitMap.get(wn) : null;
+    // Pre-seeded (resume lead-in / seek seeding): invisible for the session.
+    if (wHitRec && wHitRec.seeded) continue;
     const wIsMidRelease = !!(wHitRec && wHitRec.isLN && wHitRec.tailFailed);
     if (wIsHit && !wIsMiss && !wIsMidRelease) {
       drawSt = Math.max(wst, curTk);
@@ -200,12 +200,11 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     let isHit, isMissed;
     isHit = opts.hitMap.has(n);
     isMissed = opts.missSet && opts.missSet.has(n);
-    // A note marked hit while still well in the future can only be a
-    // pre-seeded one (mid-chart resume lead-in / seek seeding) — hide it so
-    // the silent run-up shows empty shapes. Legit early hits sit within the
-    // judgment window (≤100ms ahead), comfortably inside the 150ms margin.
-    if (isHit && nMs > curMs + 150) { _gfState.set(n, null); continue; }
     const hitRec = isHit ? opts.hitMap.get(n) : null;
+    // Pre-seeded notes (resume lead-in / seek seeding) are invisible for the
+    // whole session — the silent run-up must show only empty shapes, and a
+    // seeded note must never scroll through the judgment area afterwards.
+    if (hitRec && hitRec.seeded) { _gfState.set(n, null); continue; }
     const isMidRelease = !!(hitRec && hitRec.isLN && hitRec.tailFailed);
     let alpha = 1;
     if (isHit && !n.duration) { alpha = Math.max(0, 1 - (curMs - nMs) / 100); }
@@ -251,7 +250,16 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
         const th = ES.nThk * (n.isWide ? 1 : .9);
         const rx0 = n.isWide ? Math.min(hp.x, hp.x + hp.w) : hp.x + hp.w * .05;
         const rw  = n.isWide ? Math.abs(hp.w)              : hp.w - hp.w * .05 * 2;
+        // Chord emphasis: overlap (gold) heads get a glow + bright edge so
+        // simultaneous notes on Lines 2/3 read unmistakably as chords.
+        const isChord = hc === OVERLAP_COLOR;
+        if (isChord) { ctx.save(); ctx.shadowColor = OVERLAP_COLOR; ctx.shadowBlur = 10; }
         drawNoteHead(ctx, n.isWide, rx0, hy, rw, th, hc, 4);
+        if (isChord) {
+          ctx.restore();
+          ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1;
+          ctx.strokeRect(rx0 + 0.5, hy - th / 2 + 0.5, rw - 1, th - 1);
+        }
         if (opts.showInvalid && s.ov && s.ov.type === 'invalid') {
           ctx.save();
           ctx.strokeStyle = INVALID_COLOR; ctx.lineWidth = 2;
@@ -279,6 +287,14 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
         rw  = n.isWide ? Math.abs(p.w)            : p.w - p.w * .05 * 2;
       }
       drawNoteHead(ctx, n.isWide, rx0, y, rw, th, drawHead, 4);
+      // Chord emphasis for tap heads (same treatment as LN heads above).
+      if (drawHead === OVERLAP_COLOR) {
+        ctx.save(); ctx.shadowColor = OVERLAP_COLOR; ctx.shadowBlur = 10;
+        drawNoteHead(ctx, n.isWide, rx0, y, rw, th, drawHead, 4);
+        ctx.restore();
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1;
+        ctx.strokeRect(rx0 + 0.5, y - th / 2 + 0.5, rw - 1, th - 1);
+      }
       if (opts.showInvalid && s.ov && s.ov.type === 'invalid') {
         ctx.save();
         ctx.strokeStyle = INVALID_COLOR; ctx.lineWidth = 2;
@@ -293,26 +309,45 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
 
   // Key beams — input feedback. A soft light rises from the judgment line on
   // each lane whose key is pressed: steady glow while held, brighter flash
-  // right after the press. opts.keyBeams = [{li, a}] (line index 0-3, alpha),
-  // supplied only by live Play; editor/idle previews omit it.
+  // right after the press. The beam FOLLOWS THE SHAPE: at every height it is
+  // bounded by the lane's actual left/right edges at the tick that maps to
+  // that height, so a moving/narrowing shape bends the light with it instead
+  // of leaving a straight column floating off the lane.
+  // opts.keyBeams = [{li, a}] (line index 0-3, alpha) — live Play only.
   if (opts.keyBeams && opts.keyBeams.length) {
-    const infoB = getTkInfo(curTk);
-    const shB = infoB.sh, linesB = infoB.lines;
-    const blx = p2x(shB.left), brx = p2x(shB.right), bsw = brx - blx;
     const beamTop = Math.max(gy, jY - gh * 0.22);
+    const SAMPLES = 28;
+    // y → tick along the scroll: invert tk2y. y = jY - ((ms-curMs)/visMs)*(jY-gy)
+    const yToTk = y => ms2t(curMs + ((jY - y) / (jY - gy)) * visMs);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const b of opts.keyBeams) {
-      let cum = 0;
-      for (let k = 0; k < b.li; k++) cum += linesB[k] / 100;
-      const x0 = blx + cum * bsw;
-      const w = (linesB[b.li] / 100) * bsw;
-      if (!(Math.abs(w) > 0.5)) continue;
+      // Sample the lane's [left,right] at each height.
+      const pts = [];
+      let ok = true;
+      for (let s = 0; s <= SAMPLES; s++) {
+        const y = jY + (beamTop - jY) * (s / SAMPLES);
+        const info = getTkInfo(yToTk(y));
+        const sh = info.sh, lines = info.lines;
+        const lx = p2x(sh.left), rx = p2x(sh.right), sw = rx - lx;
+        let cum = 0;
+        for (let k = 0; k < b.li; k++) cum += lines[k] / 100;
+        const x0 = lx + cum * sw;
+        const x1 = x0 + (lines[b.li] / 100) * sw;
+        if (!isFinite(x0) || !isFinite(x1)) { ok = false; break; }
+        pts.push({ y, xL: Math.min(x0, x1), xR: Math.max(x0, x1) });
+      }
+      if (!ok || pts.length < 2) continue;
       const grad = ctx.createLinearGradient(0, jY, 0, beamTop);
       grad.addColorStop(0, `rgba(255,255,255,${Math.min(0.6, b.a).toFixed(3)})`);
       grad.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = grad;
-      ctx.fillRect(Math.min(x0, x0 + w), beamTop, Math.abs(w), jY - beamTop);
+      ctx.beginPath();
+      ctx.moveTo(pts[0].xL, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].xL, pts[i].y);
+      for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(pts[i].xR, pts[i].y);
+      ctx.closePath();
+      ctx.fill();
     }
     ctx.restore();
   }

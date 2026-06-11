@@ -24,6 +24,18 @@ document.addEventListener('keyup', (e) => {
   if (PS.playActive) handlePlayKeyUp(e.code);
 });
 
+// Stuck-key guard: alt-tab / OS overlays can swallow keyup events, leaving
+// channels stuck in playKeyHeld (which then ignores the next keydown).
+// Synthesize a proper release for every held key so holds resolve through
+// the normal grace/transfer/mid-release path instead of dangling.
+window.addEventListener('blur', () => {
+  if (!PS.playActive) return;
+  for (const ch of [...PS.playKeyHeld]) {
+    const code = PS.keyBindings[ch];
+    if (code) handlePlayKeyUp(code);
+  }
+});
+
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
 

@@ -158,7 +158,11 @@ export function evaluateEnd() {
 export function computeResult(forceEnded) {
   let sCount = 0, pCount = 0, gCount = 0;
   let tailHits = 0, midReleases = 0;
+  let seededUnits = 0;
   for (const rec of PS.playHitMap.values()) {
+    // Seeded notes (mid-chart start / seek) were never played — exclude them
+    // from both the numerator (counts) and the denominator (total below).
+    if (rec.seeded) { seededUnits += rec.isLN ? 2 : 1; continue; }
     if (rec.headType === 'SYNC') sCount++;
     else if (rec.headType === 'PERFECT') pCount++;
     else if (rec.headType === 'GOOD') gCount++;
@@ -171,7 +175,7 @@ export function computeResult(forceEnded) {
   for (const n of PS.playMissSet) headMissPoints += (n.duration > 0 ? 2 : 1);
   const missCount = headMissPoints + midReleases;
 
-  const total = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0);
+  const total = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0) - seededUnits;
 
   // Score (million): SYNC/PERFECT = full, GOOD = half, MISS = 0.
   const scoreNum = sCount + tailHits + pCount + gCount * 0.5;

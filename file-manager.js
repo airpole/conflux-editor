@@ -14,6 +14,16 @@ import { updateAutoSaveIndicator } from './autosave.js';
 // File names go into data-arg="…" and are read back un-escaped via dataset.
 const escAttr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
+// Internal localStorage entries that share LS_PREFIX but are NOT chart files.
+// keyBindings (key config), score_* (best records), __autosave__ (autosave
+// slot) must never appear in — or be deletable from — the file list.
+const FM_RESERVED = new Set(['keyBindings', '__autosave__']);
+function fmIsChartKey(name, obj) {
+  if (FM_RESERVED.has(name) || name.startsWith('score_')) return false;
+  // A chart save always carries a notes array; anything else is app state.
+  return !!obj && typeof obj === 'object' && Array.isArray(obj.notes);
+}
+
 export function fmGetFiles() {
   const files = [];
   for (let i = 0; i < localStorage.length; i++) {
@@ -22,9 +32,11 @@ export function fmGetFiles() {
       try {
         const raw = localStorage.getItem(k);
         const obj = JSON.parse(raw);
+        const name = k.slice(LS_PREFIX.length);
+        if (!fmIsChartKey(name, obj)) continue;
         files.push({
           key: k,
-          name: k.slice(LS_PREFIX.length),
+          name,
           date: obj._savedAt || '',
           title: obj.metadata?.title || 'Untitled',
           artist: obj.metadata?.artist || '',
@@ -69,6 +81,13 @@ export function fmSaveAs() {
   const defaultName = `${D.metadata.artist}-${D.metadata.title}_${D.metadata.difficulty}`;
   const name = prompt('File name:', ES.currentFileName || defaultName);
   if (!name) return;
+  // Reserved internal keys (key config / records / autosave) share the same
+  // localStorage prefix — saving a chart under one of those names would
+  // silently overwrite app state and the file would be hidden from the list.
+  if (FM_RESERVED.has(name) || name.startsWith('score_')) {
+    toast('이 이름은 내부 데이터용으로 예약되어 있습니다. 다른 이름을 사용해 주세요.');
+    return;
+  }
   ES.currentFileName = name;
   fmSave();
 }

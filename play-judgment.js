@@ -67,11 +67,13 @@ export function seedPlayStateFromCurMs(curMs) {
       tailDone: !isLN || tailIsPast,
       tailFailed: false,
       tailMs: isLN ? tailMs : undefined,
+      seeded: true,   // pre-resolved (resume lead-in / seek) — renderer hides these entirely
     });
-    PS.playCombo++;
-    if (isLN && tailIsPast) PS.playCombo++;
   }
-  if (PS.playCombo > PS.playMaxCombo) PS.playMaxCombo = PS.playCombo;
+  // Seeded notes intentionally contribute NO combo and (via the `seeded`
+  // flag) are excluded from score/accuracy: a mid-chart start is practice on
+  // the remaining section, so the counter starts at 0 and the result reflects
+  // only what the player actually played. Records are gated separately.
 }
 
 export function applyJudgment(note, diff, curMs, silent) {
