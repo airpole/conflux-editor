@@ -355,31 +355,43 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   // Judgment line — doubles as the life-gauge bar during a live session.
   // opts.gauge = {value: 0..100, type: 'normal'|'hard'} when playing; absent
   // in editor/idle previews, where we draw the plain white line instead.
+  // Judgment line — one bar, two roles. The line itself IS the empty gauge
+  // track; during a live session the gauge fills it left→right in the gauge
+  // color. Track and fill share JLINE_H so there is no thickness mismatch
+  // between "judgment line" and "gauge" — an empty gauge looks exactly like
+  // the editor's judgment line.
+  const JLINE_H = 5;
   if (opts.gauge) {
     const frac = Math.max(0, Math.min(1, opts.gauge.value / 100));
     // Gauge tint by type (shared palette): Normal green, Hard red.
     const fill = opts.gauge.color || (opts.gauge.type === 'hard' ? '#ff4a5a' : '#4aff8a');
-    // Unfilled track (faint), then the filled portion left→right.
-    ctx.fillStyle = 'rgba(255,255,255,0.10)';
-    ctx.fillRect(gx, jY - 3, gw, 6);
+    // Empty track = the judgment line.
+    ctx.fillStyle = 'rgba(255,255,255,0.30)';
+    ctx.fillRect(gx, jY - JLINE_H / 2, gw, JLINE_H);
+    // Filled portion.
     ctx.fillStyle = fill;
-    ctx.fillRect(gx, jY - 3, gw * frac, 6);
-    // Bright leading edge + thin baseline so the judgment position stays legible.
-    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(gx, jY); ctx.lineTo(gx + gw, jY); ctx.stroke();
-    const glow = ctx.createLinearGradient(0, jY - 6, 0, jY + 6);
+    ctx.fillRect(gx, jY - JLINE_H / 2, gw * frac, JLINE_H);
+    // Bright leading-edge tick so the current level reads at a glance.
+    if (frac > 0 && frac < 1) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(gx + gw * frac - 1, jY - JLINE_H / 2 - 1, 2, JLINE_H + 2);
+    }
+    // Soft glow under the filled portion only.
+    const glow = ctx.createLinearGradient(0, jY - 7, 0, jY + 7);
     glow.addColorStop(0, 'rgba(255,255,255,0)');
     glow.addColorStop(0.5, fill + '55');
     glow.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = glow; ctx.fillRect(gx, jY - 6, gw * frac, 12);
+    ctx.fillStyle = glow; ctx.fillRect(gx, jY - 7, gw * frac, 14);
   } else {
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(gx, jY); ctx.lineTo(gx + gw, jY); ctx.stroke();
-    const gr = ctx.createLinearGradient(0, jY - 6, 0, jY + 6);
+    // Editor / idle preview: same bar, neutral white — visually identical to
+    // an empty gauge so Play and editor agree on the judgment position.
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fillRect(gx, jY - JLINE_H / 2, gw, JLINE_H);
+    const gr = ctx.createLinearGradient(0, jY - 7, 0, jY + 7);
     gr.addColorStop(0, 'rgba(255,255,255,0)');
     gr.addColorStop(0.5, 'rgba(255,255,255,0.12)');
     gr.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = gr; ctx.fillRect(gx, jY - 6, gw, 12);
+    ctx.fillStyle = gr; ctx.fillRect(gx, jY - 7, gw, 14);
   }
 
   // Hit effects — water ripple

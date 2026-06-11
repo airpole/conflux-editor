@@ -77,9 +77,26 @@ export const JUDGE_WIDE_SYNC  = 100; // Wide notes: SYNC only, ±100ms
 export const GAUGE_START = { normal: 0, hard: 100 };
 export const NORMAL_CLEAR_PCT = 75;
 
+// ---- Gauge tuning (modeled on IIDX groove/survival + SDVX EF/EX) ----
+// NORMAL (groove-style): per-unit GAIN is chart-size dependent — an all-SYNC
+// run always sums to GAUGE_NORMAL_TOTAL_GAIN (+200%), like IIDX's `a` and
+// SDVX EF's "+210% if all CRITICAL". This fixes two failures of a fixed gain:
+// short charts that could NEVER reach the clear line, and long charts where
+// misses became meaningless. Losses are absolute %, so a late-chart collapse
+// (후살) still costs the same on any chart. GOOD earns half (IIDX GREAT/2).
+// LN-tail loss is 1/4 of a chip miss, following SDVX's long-note ratio.
+// HARD (survival-style): starts 100, dies at 0. Recovery is intentionally
+// tiny (IIDX hard +0.16/PGREAT) so a miss is never erased by a few notes;
+// GOOD is ±0 (a pass, but no fuel). 20 chip misses = death. Below
+// GAUGE_HARD_LOW_GUARD %, losses are halved (IIDX/SDVX 30% mercy).
+export const GAUGE_NORMAL_TOTAL_GAIN = 200;
+export const GAUGE_HARD_LOW_GUARD = 30;
 export const GAUGE_DELTA = {
-  normal: { SYNC: +0.6, PERFECT: +0.5, GOOD: +0.2, MISS: -2.0, TAIL_OK: +0.4, TAIL_MISS: -1.5 },
-  hard:   { SYNC: +1.5, PERFECT: +1.2, GOOD: -2.0, MISS: -5.0, TAIL_OK: +1.0, TAIL_MISS: -4.0 },
+  // normal: positive entries are ×a multipliers (a = TOTAL_GAIN / live units);
+  //         negative entries are absolute percentages.
+  normal: { SYNC: 1.0, PERFECT: 1.0, GOOD: 0.5, TAIL_OK: 1.0, MISS: -6.0, TAIL_MISS: -1.5 },
+  // hard: every entry is an absolute percentage.
+  hard:   { SYNC: +0.15, PERFECT: +0.15, GOOD: 0, TAIL_OK: +0.1, MISS: -5.0, TAIL_MISS: -2.5 },
 };
 
 // ---- Clear-mark lock options (on top of the chosen gauge) ----

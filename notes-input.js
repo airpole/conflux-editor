@@ -16,7 +16,7 @@ import { tickToMeasure, getMinTick } from './timing.js';
 import { invalidateNoteOverlaps } from './overlaps.js';
 import { dispatch, AddNotes, DeleteNotes, MoveNotes, ReplaceNotes } from './commands.js';
 import { nMet, drawN } from './notes-render.js';
-import { cancelLN, cancelTE, shiftSelectedByDelta } from './notes-tools.js';
+import { cancelLN, cancelTE, shiftSelectedByDelta, nZ } from './notes-tools.js';
 import { findTextEvtAt, showTePicker, teEdit, teNewRange } from './text-events.js';
 
 // ── Module-private drag state ─────────────────────────────
@@ -472,6 +472,11 @@ document.addEventListener('DOMContentLoaded', () => {
   cv.addEventListener('pointerup', onUp);
   cv.addEventListener('wheel', (e) => {
     e.preventDefault();
+    // Ctrl/Cmd + wheel = zoom (mirrors +/- keys); plain wheel = time scroll.
+    if (e.ctrlKey || e.metaKey) {
+      nZ(e.deltaY < 0 ? 1 : -1);
+      return;
+    }
     const m = nMet(); if (!m) return;
     ES.nScr = Math.max(getMinTick(), ES.nScr - e.deltaY * m.tpp * 0.8);
     drawN();

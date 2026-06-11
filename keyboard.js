@@ -17,6 +17,9 @@ import { handlePlayKeyDown, handlePlayKeyUp } from './play-input.js';
 import { toggleEdPlay } from './edit-playback.js';
 import { playToggle, playRestart, stopPlay } from './play.js';
 import { setGauge, setLockTarget, setLockMode, toggleFastSlow } from './play-options.js';
+import { fmSave, fmSaveAs, showMod, renderFMList } from './file-manager.js';
+import { doExport } from './import-export.js';
+import { goTab } from './tab-nav.js';
 import { drawN } from './notes-render.js';
 import { drawS } from './shape-render.js';
 
@@ -63,6 +66,22 @@ document.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();
 
   if (ctrl) {
+    if (key === 's') {                       // Ctrl+S save / Ctrl+Shift+S save-as
+      e.preventDefault();
+      if (shift) fmSaveAs(); else fmSave();
+      return;
+    }
+    if (key === 'o') {                       // Ctrl+O open file manager
+      e.preventDefault();
+      renderFMList();
+      showMod('fileMod');
+      return;
+    }
+    if (key === 'e') {                       // Ctrl+E export .json
+      e.preventDefault();
+      doExport();
+      return;
+    }
     if (key === 'z' && !shift) {
       e.preventDefault();
       if (ES.activeTab === 'note') undo('n');
@@ -110,6 +129,15 @@ document.addEventListener('keydown', (e) => {
       }
       return;
     }
+    return;
+  }
+
+  // Tab = cycle editor tabs Note → Shape → Meta → Play → Note.
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const order = ['note', 'shape', 'meta', 'play'];
+    const i = order.indexOf(ES.activeTab);
+    goTab(order[(i + 1) % order.length]);
     return;
   }
 

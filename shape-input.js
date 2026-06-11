@@ -21,7 +21,7 @@ import { sp2f, getShape, getLines, normalizeShapeChain,
          resolveArcEasing } from './shape.js';
 import { dispatch, MutateShapeEvents, DeleteShapeEvents,
          AddLineEvent, ApplyShapeOps } from './commands.js';
-import { sMet, findShapeEvtAt, addShapeEvt } from './shape-tools.js';
+import { sMet, findShapeEvtAt, addShapeEvt, sZ } from './shape-tools.js';
 import { drawS } from './shape-render.js';
 import { cancelArc } from './edit-options.js';
 
@@ -452,6 +452,11 @@ document.addEventListener('DOMContentLoaded', () => {
   cv.addEventListener('pointerup', onUp);
   cv.addEventListener('wheel', (e) => {
     e.preventDefault();
+    // Ctrl/Cmd + wheel = zoom (mirrors +/- keys); plain wheel = time scroll.
+    if (e.ctrlKey || e.metaKey) {
+      sZ(e.deltaY < 0 ? 1 : -1);
+      return;
+    }
     const met = sMet(); if (!met) return;
     ES.sScr = Math.max(getMinTick(), ES.sScr - e.deltaY * met.tpp * 0.8);
     drawS();

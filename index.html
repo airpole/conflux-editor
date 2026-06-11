@@ -313,8 +313,8 @@ canvas{display:block;position:absolute;top:0;left:0}
     </div>
     <div class="pvbar" id="playOptBar" style="gap:2px;flex-wrap:wrap">
       <span class="bi" style="opacity:.6">Gauge</span>
-      <button class="nsm" data-action="setGauge" data-arg="normal" title="Normal 게이지 (종료 시 75% 이상 클리어)">Normal</button>
-      <button class="nsm" data-action="setGauge" data-arg="hard" title="Hard 게이지 (100% 시작, 0% 도달 시 실패 / 20미스)">Hard</button>
+      <button class="nsm" data-action="setGauge" data-arg="normal" title="Normal 게이지 (0% 시작, 종료 시 75% 이상 클리어 · 증가량은 채보 규모에 비례)">Normal</button>
+      <button class="nsm" data-action="setGauge" data-arg="hard" title="Hard 게이지 (100% 시작, 0% 도달 시 즉시 실패 · 30% 미만 감소 완화)">Hard</button>
       <span class="bi" style="opacity:.6;margin-left:6px">Lock</span>
       <button class="nsm" data-action="setLockTarget" data-arg="none" title="추가 잠금 없음">None</button>
       <button class="nsm" data-action="setLockTarget" data-arg="fc" title="Full Combo: MISS 없음">FC</button>
