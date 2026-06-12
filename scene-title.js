@@ -8,13 +8,8 @@
 // Self-contained: this module owns its markup (built in mount), its styles
 // (injected once), and its input wiring. index.html only provides the empty
 // #scene-title mount div. Nothing here reaches into other scenes' DOM.
-//
-// Dev shortcut: when FEATURES.editor is on, a small "→ Editor" button appears
-// so development can skip straight past Title/Mode-select. It's absent in a
-// game-only build, so players never see an editor route.
 
 import { goScene } from './scene-manager.js';
-import { FEATURES } from './config.js';
 
 let _wired = false;
 
@@ -40,12 +35,6 @@ const CSS = `
   #scene-title .tt-prompt{ animation: ttBlink 1.4s ease-in-out infinite; }
 }
 @keyframes ttBlink{ 0%,100%{opacity:.25} 50%{opacity:1} }
-#scene-title .tt-dev{
-  position:absolute; top:14px; right:14px; z-index:2;
-  background:var(--surf); color:var(--tx2); border:1px solid var(--brd);
-  border-radius:6px; padding:5px 10px; font-size:11px; cursor:pointer;
-}
-#scene-title .tt-dev:active{ background:var(--bg3); }
 `;
 
 function injectCSS() {
@@ -67,18 +56,7 @@ export function mountTitle(el) {
     <h1 class="tt-logo">CONFLUX</h1>
     <div class="tt-sub">Rhythm</div>
     <div class="tt-prompt">터치하여 시작</div>
-    ${FEATURES.editor ? '<button class="tt-dev" id="ttDevEditor">\u2192 Editor</button>' : ''}
   `;
-
-  // The dev shortcut must NOT also trigger the screen-wide "any input" start,
-  // so it stops propagation and routes straight to the editor scene.
-  if (FEATURES.editor) {
-    const dev = el.querySelector('#ttDevEditor');
-    if (dev) dev.addEventListener('click', (e) => {
-      e.stopPropagation();
-      goScene('editor');
-    });
-  }
 }
 
 // onEnter: (re)attach the "any input advances" listeners. We attach on enter

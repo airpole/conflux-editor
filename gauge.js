@@ -19,22 +19,15 @@
 //
 // All tunable numbers live in constants.js (GAUGE_DELTA etc.), never here.
 
-import { GAUGE_START, NORMAL_CLEAR_PCT, GAUGE_DELTA, LOCK_TIERS, RANK_TABLE,
-         GAUGE_NORMAL_TOTAL_GAIN, GAUGE_HARD_LOW_GUARD } from './constants.js';
+import { GAUGE_START, NORMAL_CLEAR_PCT, GAUGE_DELTA, LOCK_TIERS, RANK_TABLE } from './constants.js';
 import { D } from './state.js';
 import { PS } from './play-state.js';
 
 // ── Lifecycle ────────────────────────────────────────────────
 
-// Per-session cache of the Normal gauge's per-unit gain `a`. Computed lazily
-// on the first judgment (so mid-chart seeding has already happened) and
-// invalidated by resetGauge().
-let _normalUnitGain = null;
-
 /** Reset gauge + lock state at session start. Call from _startPlayImpl. */
 export function resetGauge() {
   PS.gaugeValue = GAUGE_START[PS.gaugeType] ?? 0;
-  _normalUnitGain = null;
   // Live lock tier begins at whatever the player is attempting. With no lock
   // it stays 'none' and only the bare gauge decides the outcome.
   PS.lockTier = PS.lockTarget;
@@ -44,25 +37,6 @@ export function resetGauge() {
   PS.slowCount = 0;
   PS.flashTiming = null;
   PS.flashAt = 0;
-}
-
-/**
- * Per-unit Normal-gauge gain: an all-SYNC run over the LIVE portion of the
- * chart (total units minus seeded ones) sums to GAUGE_NORMAL_TOTAL_GAIN.
- * IIDX's `a` / SDVX EF's flexible per-note gain — makes every chart clearable
- * and keeps misses meaningful on long charts.
- */
-function normalUnitGain() {
-  if (_normalUnitGain != null) return _normalUnitGain;
-  let units = 0;
-  for (const n of D.notes) units += (n.duration > 0 ? 2 : 1);
-  let seeded = 0;
-  for (const rec of PS.playHitMap.values()) {
-    if (rec.seeded) seeded += (rec.isLN ? 2 : 1);
-  }
-  const live = Math.max(1, units - seeded);
-  _normalUnitGain = GAUGE_NORMAL_TOTAL_GAIN / live;
-  return _normalUnitGain;
 }
 
 function clampGauge(v) {
@@ -79,17 +53,9 @@ function clampGauge(v) {
  * Returns true if this judgment force-ends the session (caller should stop).
  */
 export function gaugeOnJudgment(kind) {
-  // 1) Gauge delta.
+  // 1) Gauge delta
   const table = GAUGE_DELTA[PS.gaugeType] || GAUGE_DELTA.normal;
-  let delta = table[kind] ?? 0;
-  if (PS.gaugeType === 'normal' && delta > 0) {
-    // Normal gains are ×a multipliers (chart-size dependent); losses absolute.
-    delta *= normalUnitGain();
-  } else if (PS.gaugeType === 'hard' && delta < 0
-             && PS.gaugeValue < GAUGE_HARD_LOW_GUARD) {
-    // Hard low-gauge mercy: below the guard line, losses are halved.
-    delta /= 2;
-  }
+  const delta = table[kind] ?? 0;
   PS.gaugeValue = clampGauge(PS.gaugeValue + delta);
 
   // 2) Clear-mark lock evaluation. Map this judgment to the strictest tier
@@ -192,11 +158,7 @@ export function evaluateEnd() {
 export function computeResult(forceEnded) {
   let sCount = 0, pCount = 0, gCount = 0;
   let tailHits = 0, midReleases = 0;
-  let seededUnits = 0;
   for (const rec of PS.playHitMap.values()) {
-    // Seeded notes (mid-chart start / seek) were never played — exclude them
-    // from both the numerator (counts) and the denominator (total below).
-    if (rec.seeded) { seededUnits += rec.isLN ? 2 : 1; continue; }
     if (rec.headType === 'SYNC') sCount++;
     else if (rec.headType === 'PERFECT') pCount++;
     else if (rec.headType === 'GOOD') gCount++;
@@ -209,7 +171,7 @@ export function computeResult(forceEnded) {
   for (const n of PS.playMissSet) headMissPoints += (n.duration > 0 ? 2 : 1);
   const missCount = headMissPoints + midReleases;
 
-  const total = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0) - seededUnits;
+  const total = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0);
 
   // Score (million): SYNC/PERFECT = full, GOOD = half, MISS = 0.
   const scoreNum = sCount + tailHits + pCount + gCount * 0.5;

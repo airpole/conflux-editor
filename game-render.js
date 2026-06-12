@@ -13,7 +13,7 @@
 // the text-events overlay.
 
 import { TPB, CHL, WIDE_BODY, WIDE_COLOR, OVERLAP_COLOR, OVERLAP_BODY,
-         NORMAL_BODY, INVALID_COLOR } from './constants.js';
+         NORMAL_BODY, INVALID_COLOR, NORMAL_CLEAR_PCT } from './constants.js';
 import { D } from './state.js';
 import { CTX } from './play-context.js';
 import { ms2t, t2ms, getSortedTS } from './timing.js';
@@ -289,24 +289,40 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   // in editor/idle previews, where we draw the plain white line instead.
   if (opts.gauge) {
     const frac = Math.max(0, Math.min(1, opts.gauge.value / 100));
-    // Gauge tint by type (shared palette): Normal green, Hard red.
-    const fill = opts.gauge.color || (opts.gauge.type === 'hard' ? '#ff4a5a' : '#4aff8a');
-    // Unfilled track (faint), then the filled portion left→right.
-    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    // Gauge tint: Hard is always red. Normal is green below the clear threshold
+    // and switches to the clear color (sky) the instant it reaches it, giving
+    // the player a clear visual "clear secured" signal as required.
+    let fill;
+    if (opts.gauge.color) {
+      fill = opts.gauge.color;
+    } else if (opts.gauge.type === 'hard') {
+      fill = '#ff4a5a';
+    } else {
+      fill = opts.gauge.value >= NORMAL_CLEAR_PCT ? '#7ad4ff' : '#4aff8a';
+    }
+    // Unfilled track (faint) IS the judgment line at full 6px weight; the
+    // filled portion overlays it left→right. No separate white baseline — that
+    // would cover the gauge color. The track + fill together read as one solid
+    // 6px line, matching the preview bar below.
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
     ctx.fillRect(gx, jY - 3, gw, 6);
     ctx.fillStyle = fill;
     ctx.fillRect(gx, jY - 3, gw * frac, 6);
-    // Bright leading edge + thin baseline so the judgment position stays legible.
-    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(gx, jY); ctx.lineTo(gx + gw, jY); ctx.stroke();
+    // Bright leading edge marks the current gauge fill boundary.
+    if (frac > 0 && frac < 1) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(gx + gw * frac - 1, jY - 3, 2, 6);
+    }
     const glow = ctx.createLinearGradient(0, jY - 6, 0, jY + 6);
     glow.addColorStop(0, 'rgba(255,255,255,0)');
     glow.addColorStop(0.5, fill + '55');
     glow.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = glow; ctx.fillRect(gx, jY - 6, gw * frac, 12);
   } else {
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(gx, jY); ctx.lineTo(gx + gw, jY); ctx.stroke();
+    // Preview/idle: same 6px weight as the gauge bar so the judgment line never
+    // changes thickness between preview and play.
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(gx, jY - 3, gw, 6);
     const gr = ctx.createLinearGradient(0, jY - 6, 0, jY + 6);
     gr.addColorStop(0, 'rgba(255,255,255,0)');
     gr.addColorStop(0.5, 'rgba(255,255,255,0.12)');

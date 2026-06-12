@@ -41,7 +41,7 @@ import { onDispatch } from './commands.js';
 import { playToggle, playRestart, playSeekTo, playSeekPreview } from './play.js';
 import { togglePlayFullscreen, drawPlayIdle } from './play-render.js';
 import { setPlayContext, makeEditorContext } from './play-context.js';
-import { registerScene, goScene } from './scene-manager.js';
+import { registerScene, goScene, resetSceneStack } from './scene-manager.js';
 import { FEATURES, START_SCENE } from './config.js';
 import { mountTitle, enterTitle, exitTitle } from './scene-title.js';
 import { mountModeSelect } from './scene-modeselect.js';
@@ -79,9 +79,20 @@ const setMetaField = (arg, e) => {
   D.metadata[arg] = e.target.type === 'number' ? +e.target.value : e.target.value;
 };
 
+// Leave the editor and return to the Title screen. Stops any active play
+// session, snapshots work via autoSave, and resets the back stack so Title is
+// a fresh root (editor→title shouldn't be unwound by goBack).
+function exitToTitle() {
+  if (PS.playActive) import('./play.js').then(m => m.stopPlay());
+  autoSave();
+  resetSceneStack();
+  goScene('title');
+}
+
 const CLICK_ACTIONS = {
   // Tab nav (C-1)
   goTab,
+  exitToTitle,
   // Notes toolbar (C-2)
   setNT,
   nZ: arg => nZ(+arg),                  // data-arg is a string; coerce to number
@@ -186,7 +197,17 @@ window.addEventListener('DOMContentLoaded', () => {
   registerScene('editor', {
     el: $('app'),
     display: 'flex',          // #app is a flex column; preserve that when shown
-    onEnter() { requestAnimationFrame(() => rszActiveCanvas()); },
+    // Redraw the active tab on every entry. The canvas has zero size while the
+    // scene is hidden, so the initial draw must happen here (not at boot) and
+    // again whenever the editor is re-entered from Title/Mode-select.
+    onEnter() {
+      requestAnimationFrame(() => {
+        rszActiveCanvas();
+        if (ES.activeTab === 'note') drawN();
+        else if (ES.activeTab === 'shape') drawS();
+        else if (ES.activeTab === 'play' && !PS.playActive) drawPlayIdle();
+      });
+    },
   });
   registerScene('title', {
     el: $('scene-title'),
@@ -318,7 +339,8 @@ window.addEventListener('DOMContentLoaded', () => {
   buildGP('sgp', ES.sGD);
   syncMeta(); renderTempoList(); renderTSList();
   loadKeyBindings(); renderKeyCfg();
-  requestAnimationFrame(() => { rszActiveCanvas(); drawN(); });
+  // Initial canvas draw is handled by the editor scene's onEnter (the canvas
+  // has no size until the scene is visible). See registerScene('editor').
 
   // Persistence
   window.addEventListener('beforeunload', () => { autoSave(); });

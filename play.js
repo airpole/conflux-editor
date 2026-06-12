@@ -296,6 +296,11 @@ export function playSeekTo(v) {
   PS.playHitMap.clear(); PS.playMissSet.clear(); PS.playEffects = [];
   PS.playCombo = 0; PS.playMaxCombo = 0; PS.playJudgQueue = [];
   PS.playHoldState = {}; PS.playKeyHeld.clear();
+  // Rebuild the run as if the intro up to `ms` was auto-played perfectly:
+  // reset the gauge to its start value, then seed re-applies every passed
+  // note's SYNC delta. Without the reset the gauge would keep its pre-seek
+  // value and double-count, diverging from a from-the-top play.
+  resetGauge();
   seedPlayStateFromCurMs(ms);
   resetMissChecker(ms);
   resetHitScheduler(ms);

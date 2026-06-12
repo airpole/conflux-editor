@@ -12,38 +12,20 @@ import { gaugeOnJudgment, feedFastSlow } from './gauge.js';
 export function getPlayJudgment(channel, curMs) {
   // channel = physical key 1-6; map to line for normal note matching
   const line = KEY2LINE[channel];
-  // Two separate candidate searches, because normal and wide notes compete
-  // differently for a key press:
-  //   • A NORMAL note can ONLY be hit by its own lane's key.
-  //   • A WIDE note accepts ANY key.
-  // So when a wide and a normal coincide, the lane key must take the normal
-  // (its only possible hitter) and let some other key satisfy the wide. If we
-  // judged them in one pool the wide could be picked first and orphan the
-  // normal into a MISS — the "input eaten" bug on wide+normal chords.
-  //
-  // Within each class we pick the EARLIEST note in window (smallest startTick),
-  // not the absolute-nearest, so a slightly-early input can't skip an older
-  // un-hit note and steal a closer later one.
-  let bestNormal = null, bestNormalTick = Infinity;
-  let bestWide = null, bestWideTick = Infinity;
+  let best = null, bestDiff = Infinity;
   for (const n of D.notes) {
-    if (PS.playHitMap.has(n) || PS.playMissSet.has(n)) continue;
-    const diff = Math.abs(curMs - t2ms(n.startTick));
     if (n.isWide) {
-      // A wide note already sustained by another key must not be re-judged as
-      // a fresh head hit (it would double-count combo / score).
-      if (Object.values(PS.playHoldState).includes(n)) continue;
-      if (diff <= JUDGE_WIDE_SYNC && n.startTick < bestWideTick) {
-        bestWide = n; bestWideTick = n.startTick;
-      }
+      // accept any key
     } else {
       if (n.channel !== line) continue;
-      if (diff <= JUDGE_GOOD && n.startTick < bestNormalTick) {
-        bestNormal = n; bestNormalTick = n.startTick;
-      }
+    }
+    if (PS.playHitMap.has(n) || PS.playMissSet.has(n)) continue;
+    const diff = curMs - t2ms(n.startTick);
+    const window = n.isWide ? JUDGE_WIDE_SYNC : JUDGE_GOOD;
+    if (Math.abs(diff) <= window && Math.abs(diff) < bestDiff) {
+      best = n; bestDiff = Math.abs(diff);
     }
   }
-  const best = bestNormal || bestWide;   // normal (lane-specific) wins ties
   return best ? {note: best, diff: curMs - t2ms(best.startTick)} : null;
 }
 
@@ -67,13 +49,17 @@ export function seedPlayStateFromCurMs(curMs) {
       tailDone: !isLN || tailIsPast,
       tailFailed: false,
       tailMs: isLN ? tailMs : undefined,
-      seeded: true,   // pre-resolved (resume lead-in / seek) — renderer hides these entirely
     });
+    PS.playCombo++;
+    if (isLN && tailIsPast) PS.playCombo++;
+    // Feed the gauge as if the intro was auto-played perfectly: every passed
+    // note's head counts as SYNC, and an LN whose tail already elapsed also
+    // counts its TAIL_OK. Without this the gauge would ignore everything before
+    // the seek point, so a mid-start gauge wouldn't match a from-the-top run.
+    gaugeOnJudgment('SYNC');
+    if (isLN && tailIsPast) gaugeOnJudgment('TAIL_OK');
   }
-  // Seeded notes intentionally contribute NO combo and (via the `seeded`
-  // flag) are excluded from score/accuracy: a mid-chart start is practice on
-  // the remaining section, so the counter starts at 0 and the result reflects
-  // only what the player actually played. Records are gated separately.
+  if (PS.playCombo > PS.playMaxCombo) PS.playMaxCombo = PS.playCombo;
 }
 
 export function applyJudgment(note, diff, curMs, silent) {
@@ -139,11 +125,6 @@ export function applyMidRelease(note, curMs) {
   if (!rec || !rec.isLN || rec.tailDone) return;
   rec.tailDone = true;
   rec.tailFailed = true;
-  // Cut the hold effect short: its endMs was the tail time, which kept the
-  // ripple glowing on a broken hold. Clamping to now lets it fade immediately.
-  for (const h of PS.playEffects) {
-    if (h.note === note && h.endMs > curMs) h.endMs = curMs;
-  }
   PS.playCombo = 0;
   PS.playJudgQueue.push({type: 'MISS', diff: undefined, t: curMs});
   if (gaugeOnJudgment('TAIL_MISS')) PS.playForceEnded = true;

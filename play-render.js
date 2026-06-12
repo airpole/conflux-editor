@@ -1,7 +1,7 @@
 // ============================================================
 //  PLAY-RENDER — Play canvas (idle + active), HUD, fullscreen
 // ============================================================
-import { $, GAUGE_COLOR, FAST_COLOR, SLOW_COLOR } from './constants.js';
+import { $, FAST_COLOR, SLOW_COLOR } from './constants.js';
 import { D } from './state.js';
 import { CTX } from './play-context.js';
 import { PS } from './play-state.js';
@@ -68,7 +68,7 @@ export function drawPlayScreen(cv, curMs) {
     missSet: PS.playMissSet,
     showMissColor: true,
     showInvalid: true,   // Phase: surface unplayable overlaps in live Play too
-    gauge: { value: PS.gaugeValue, type: PS.gaugeType, color: GAUGE_COLOR[PS.gaugeType] }   // judgment line → life bar
+    gauge: { value: PS.gaugeValue, type: PS.gaugeType }   // color decided in game-render (Normal flips at clear threshold)
   });
   drawPlayHUD(ctx, gx, gy, gw, gh, curMs);
   ctx.restore();
