@@ -301,9 +301,30 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     ctx.globalAlpha = 1;
   }
 
-  // Judgment line — doubles as the life-gauge bar during a live session.
-  // opts.gauge = {value: 0..100, type: 'normal'|'hard'} when playing; absent
-  // in editor/idle previews, where we draw the plain white line instead.
+  // Sudden / Hidden lane covers. Mask part of the visible field with a gradient
+  // so notes appear later (Sudden, from the top) or vanish before the line
+  // (Hidden, from the bottom). Drawn over notes but BEFORE the judgment line so
+  // the line stays visible. Cover fractions are % of the field height (gy..jY).
+  const sud = Math.max(0, Math.min(95, opts.sudden || 0)) / 100;
+  const hid = Math.max(0, Math.min(95, opts.hidden || 0)) / 100;
+  if (sud > 0) {
+    const h = (jY - gy) * sud;
+    const g = ctx.createLinearGradient(0, gy, 0, gy + h);
+    g.addColorStop(0, 'rgba(8,8,13,1)');
+    g.addColorStop(0.82, 'rgba(8,8,13,1)');
+    g.addColorStop(1, 'rgba(8,8,13,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(gx, gy, gw, h);
+  }
+  if (hid > 0) {
+    const h = (jY - gy) * hid;
+    const g = ctx.createLinearGradient(0, jY - h, 0, jY);
+    g.addColorStop(0, 'rgba(8,8,13,0)');
+    g.addColorStop(0.18, 'rgba(8,8,13,1)');
+    g.addColorStop(1, 'rgba(8,8,13,1)');
+    ctx.fillStyle = g;
+    ctx.fillRect(gx, jY - h, gw, h);
+  }
   if (opts.gauge) {
     const frac = Math.max(0, Math.min(1, opts.gauge.value / 100));
     // Gauge tint: Hard is always red. Normal is green below the clear threshold

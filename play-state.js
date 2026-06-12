@@ -76,6 +76,8 @@ export const PS = {
   slowCount: 0,
   showFastSlow: true,      // Settings toggle
   visualOffset: 0,         // ms; subtracted from input time (note/judge timing)
+  sudden: 0,               // lane cover from top, 0..100 (% of field height)
+  hidden: 0,               // lane cover from bottom, 0..100 (% of field height)
 };
 
 /** Rebuild PS.codeToChannel from PS.keyBindings. Called on key bind change. */

@@ -81,6 +81,15 @@ function injectCSS() {
   document.head.appendChild(s);
 }
 
+// Visible fall time (ms): base = 2000/hiSpeed (top of field → judgment line),
+// reduced by Sudden/Hidden which cover part of the field. Mirrors game-render's
+// visMs and the cover fractions, so the readout matches what's actually seen.
+function fallTimeMs(s) {
+  const base = 2000 / (s.hiSpeed || 3);
+  const covered = Math.min(0.95, (s.sudden || 0) / 100 + (s.hidden || 0) / 100);
+  return Math.round(base * (1 - covered));
+}
+
 // ── Control builders (return HTML strings; wired after render) ──
 function rowSeg(key, label, sub, options, current, opts) {
   const dis = opts && opts.disabled;
@@ -115,9 +124,12 @@ function rowRange(key, label, sub, min, max, step, current, fmt, opts) {
 function tabPlay(s) {
   return `
     ${rowRange('hiSpeed', 'Hi-Speed', '스크롤 속도', 1, 8, 0.1, s.hiSpeed, v => (+v).toFixed(1))}
+    <div class="st-row">
+      <div class="st-label">Fall Time<small>낙하시간 — 노트가 보이는 시간 (Sudden/Hidden 반영)</small></div>
+      <span class="st-val" id="stFallMs" style="min-width:60px">${fallTimeMs(s)}ms</span>
+    </div>
     ${rowRange('audioOffset', 'Audio Offset', '오디오 오프셋 — 음악 출력 지연 보정 (ms)', -200, 200, 1, s.audioOffset, v => `${v>0?'+':''}${v}ms`)}
     ${rowRange('visualOffset', 'Visual Offset', '비주얼 오프셋 — 노트/판정 타이밍 보정 (ms)', -200, 200, 1, s.visualOffset, v => `${v>0?'+':''}${v}ms`)}
-    ${rowToggle('showFallMs', 'Fall Time', '낙하시간 표시 — 노트가 보이는 시간(ms)', s.showFallMs, {disabled:true, soon:true})}
     <div class="st-sec">Volume</div>
     ${rowRange('volMaster', 'Master Volume', '마스터 볼륨', 0, 1, 0.01, s.volMaster, v => Math.round(v*100)+'%')}
     ${rowRange('volMusic', 'Music Volume', '음악 볼륨', 0, 1, 0.01, s.volMusic, v => Math.round(v*100)+'%')}
@@ -134,8 +146,8 @@ function tabVisual(s) {
     ${rowRange('noteThickness', 'Note Thickness', '노트 두께', 6, 24, 1, s.noteThickness, v => `${v}`)}
     ${rowRange('laneOpacity', 'Lane Opacity', '레인 투명도', 0.2, 1, 0.05, s.laneOpacity, v => Math.round(v*100)+'%')}
     ${rowRange('bgBrightness', 'Background', '배경 밝기', 0, 100, 5, s.bgBrightness, v => `${v}%`)}
-    ${rowRange('sudden', 'Sudden', '위쪽 레인 가림', 0, 100, 5, s.sudden, v => `${v}%`, {disabled:true, soon:true})}
-    ${rowRange('hidden', 'Hidden', '아래쪽 레인 가림', 0, 100, 5, s.hidden, v => `${v}%`, {disabled:true, soon:true})}
+    ${rowRange('sudden', 'Sudden', '위쪽 레인 가림', 0, 90, 5, s.sudden, v => `${v}%`)}
+    ${rowRange('hidden', 'Hidden', '아래쪽 레인 가림', 0, 90, 5, s.hidden, v => `${v}%`)}
     ${rowToggle('hitEffect', 'Hit Effect', '히트 이펙트', s.hitEffect)}
     ${rowSeg('frameCap', 'Frame Cap', '프레임 제한 — 고주사율은 자동 지원', [{v:'0',t:'AUTO'},{v:'60',t:'60'},{v:'30',t:'30'}], String(s.frameCap))}
     <div class="st-sec">Display</div>
@@ -222,6 +234,13 @@ function wireBody(host) {
       const val = +r.value;
       if (lbl) lbl.textContent = fmtVal(key, val);
       setSetting(key, val, _deps);
+      // Fall-time depends on hiSpeed/sudden/hidden; refresh the readout if it's
+      // on screen (PLAY tab). sudden/hidden live on VISUAL, so this is a no-op
+      // there — the value is recomputed when PLAY is next rendered anyway.
+      if (key === 'hiSpeed' || key === 'sudden' || key === 'hidden') {
+        const fm = host.querySelector('#stFallMs');
+        if (fm) fm.textContent = fallTimeMs(getSettings()) + 'ms';
+      }
     });
     r.addEventListener('dblclick', () => {
       const def = DEFAULT_SETTINGS[key];
@@ -229,6 +248,10 @@ function wireBody(host) {
       r.value = def;
       if (lbl) lbl.textContent = fmtVal(key, def);
       setSetting(key, def, _deps);
+      if (key === 'hiSpeed' || key === 'sudden' || key === 'hidden') {
+        const fm = host.querySelector('#stFallMs');
+        if (fm) fm.textContent = fallTimeMs(getSettings()) + 'ms';
+      }
     });
   });
   // Keybinding config shortcut.

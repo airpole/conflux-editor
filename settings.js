@@ -32,7 +32,6 @@ export const DEFAULT_SETTINGS = {
   hiSpeed: 3.0,          // scroll speed (was ES.pvSpd)
   audioOffset: 0,        // ms; shifts MUSIC start (+ = music earlier, for laggy audio out)
   visualOffset: 0,       // ms; shifts JUDGE time (+ = input treated earlier, for late hitters)
-  showFallMs: false,     // show note fall-time readout (Stage 5)
   volMaster: 1.0,
   volMusic: 0.7,
   volEffect: 1.0,        // absorbs the old ES.hitVol
@@ -150,6 +149,8 @@ export function applySettings(deps) {
     d.PS.showFastSlow = s.showFastSlow;
     d.PS.playAutoplay = s.autoplay;
     d.PS.visualOffset = s.visualOffset;
+    d.PS.sudden = s.sudden;
+    d.PS.hidden = s.hidden;
   }
 
   // Audio offset shifts the music start; stored where the audio start path reads

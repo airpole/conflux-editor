@@ -68,6 +68,7 @@ export function drawPlayScreen(cv, curMs) {
     missSet: PS.playMissSet,
     showMissColor: true,
     showInvalid: true,   // Phase: surface unplayable overlaps in live Play too
+    sudden: PS.sudden, hidden: PS.hidden,   // lane covers (Stage 5)
     gauge: { value: PS.gaugeValue, type: PS.gaugeType }   // color decided in game-render (Normal flips at clear threshold)
   });
   drawPlayHUD(ctx, gx, gy, gw, gh, curMs);
