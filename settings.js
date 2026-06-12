@@ -44,7 +44,7 @@ export const DEFAULT_SETTINGS = {
   hidden: 0,             // lane cover from bottom, 0..100 (Stage 5)
   hitEffect: true,
   frameCap: 0,           // 0 = uncapped (follows display); 30/60 = cap
-  noteThickness: 12,     // was ES.nThk
+  noteThickness: 15,     // was ES.nThk
   showCombo: true,
   showJudgment: true,
   showFastSlow: true,

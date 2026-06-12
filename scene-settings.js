@@ -26,7 +26,7 @@ export function initSettingsScene(deps) { _deps = deps; }
 const CSS = `
 #scene-settings{
   background:var(--bg); color:var(--tx);
-  display:flex; flex-direction:column; height:100%;
+  display:flex; flex-direction:column; height:100dvh; max-height:100dvh;
   user-select:none; -webkit-user-select:none;
 }
 #scene-settings .st-top{
@@ -46,13 +46,13 @@ const CSS = `
   color:var(--tx2); font-size:12px; letter-spacing:.08em; border-bottom:2px solid transparent;
 }
 #scene-settings .st-tab.on{ color:var(--acc2); border-bottom-color:var(--acc); }
-#scene-settings .st-body{ flex:1; overflow-y:auto; padding:12px; }
+#scene-settings .st-body{ flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:12px 12px 40px; }
 #scene-settings .st-row{
   display:flex; align-items:center; justify-content:space-between;
   padding:10px 2px; border-bottom:1px solid #ffffff0d; gap:12px;
 }
-#scene-settings .st-label{ font-size:13px; color:var(--tx); }
-#scene-settings .st-label small{ display:block; font-size:10px; color:var(--tx2); margin-top:2px; }
+#scene-settings .st-label{ font-size:13px; color:var(--tx); font-weight:500; }
+#scene-settings .st-label small{ display:block; font-size:10px; color:var(--tx2); margin-top:3px; font-weight:400; }
 #scene-settings .st-seg{ display:flex; gap:3px; flex-wrap:wrap; justify-content:flex-end; }
 #scene-settings .st-seg button{
   padding:6px 11px; border-radius:7px; background:var(--surf); color:var(--tx2);
@@ -66,9 +66,11 @@ const CSS = `
   font-size:11px; color:var(--orange); margin:8px 2px; letter-spacing:.02em;
 }
 #scene-settings .st-sec{
-  font-size:11px; color:var(--tx2); letter-spacing:.15em; margin:14px 2px 4px;
-  text-transform:uppercase;
+  font-size:12px; color:var(--acc2); font-weight:700; letter-spacing:.2em;
+  text-align:center; margin:26px 2px 8px; text-transform:uppercase;
+  padding-top:16px; border-top:1px solid var(--brd);
 }
+#scene-settings .st-sec:first-child{ margin-top:6px; padding-top:0; border-top:none; }
 #scene-settings .st-soon{ font-size:10px; color:var(--tx2); opacity:.7; }
 `;
 
@@ -113,12 +115,12 @@ function rowRange(key, label, sub, min, max, step, current, fmt, opts) {
 function tabPlay(s) {
   return `
     ${rowRange('hiSpeed', 'Hi-Speed', '스크롤 속도', 1, 8, 0.1, s.hiSpeed, v => (+v).toFixed(1))}
-    ${rowRange('syncOffset', '싱크 조정', '오디오 지연 보정 (ms)', -100, 100, 1, s.syncOffset, v => `${v>0?'+':''}${v}ms`, {disabled:true, soon:true})}
-    ${rowToggle('showFallMs', '낙하시간 표시', '노트가 보이는 시간(ms)', s.showFallMs, {disabled:true, soon:true})}
+    ${rowRange('syncOffset', 'Sync Offset', '싱크 조정 — 오디오 지연 보정 (ms)', -100, 100, 1, s.syncOffset, v => `${v>0?'+':''}${v}ms`, {disabled:true, soon:true})}
+    ${rowToggle('showFallMs', 'Fall Time', '낙하시간 표시 — 노트가 보이는 시간(ms)', s.showFallMs, {disabled:true, soon:true})}
     <div class="st-sec">Volume</div>
-    ${rowRange('volMaster', 'Master', null, 0, 1, 0.01, s.volMaster, v => Math.round(v*100)+'%')}
-    ${rowRange('volMusic', 'Music', null, 0, 1, 0.01, s.volMusic, v => Math.round(v*100)+'%')}
-    ${rowRange('volEffect', 'Effect', '히트사운드', 0, 1, 0.01, s.volEffect, v => Math.round(v*100)+'%')}
+    ${rowRange('volMaster', 'Master Volume', '마스터 볼륨', 0, 1, 0.01, s.volMaster, v => Math.round(v*100)+'%')}
+    ${rowRange('volMusic', 'Music Volume', '음악 볼륨', 0, 1, 0.01, s.volMusic, v => Math.round(v*100)+'%')}
+    ${rowRange('volEffect', 'Hitsound Volume', '히트사운드 볼륨', 0, 1, 0.01, s.volEffect, v => Math.round(v*100)+'%')}
     <div class="st-sec">Control</div>
     <div class="st-row"><div class="st-label">Keybindings<small>키 설정 (Meta 탭과 동일)</small></div>
       <div class="st-seg"><button id="stKeyCfg">설정</button></div></div>
@@ -127,18 +129,18 @@ function tabPlay(s) {
 
 function tabVisual(s) {
   return `
-    ${rowSeg('noteSkin', '노트 스킨', '일반 노트만 (Wide 제외)', [{v:'bar',t:'BAR'},{v:'circle',t:'CIRCLE'}], s.noteSkin)}
-    ${rowRange('noteThickness', '노트 두께', null, 6, 24, 1, s.noteThickness, v => `${v}`)}
-    ${rowRange('laneOpacity', '레인 투명도', null, 0.2, 1, 0.05, s.laneOpacity, v => Math.round(v*100)+'%')}
-    ${rowRange('bgBrightness', '배경 밝기', null, 0, 100, 5, s.bgBrightness, v => `${v}%`)}
+    ${rowSeg('noteSkin', 'Note Skin', '노트 스킨 — 일반 노트만 (Wide 제외)', [{v:'bar',t:'BAR'},{v:'circle',t:'CIRCLE'}], s.noteSkin)}
+    ${rowRange('noteThickness', 'Note Thickness', '노트 두께', 6, 24, 1, s.noteThickness, v => `${v}`)}
+    ${rowRange('laneOpacity', 'Lane Opacity', '레인 투명도', 0.2, 1, 0.05, s.laneOpacity, v => Math.round(v*100)+'%')}
+    ${rowRange('bgBrightness', 'Background', '배경 밝기', 0, 100, 5, s.bgBrightness, v => `${v}%`)}
     ${rowRange('sudden', 'Sudden', '위쪽 레인 가림', 0, 100, 5, s.sudden, v => `${v}%`, {disabled:true, soon:true})}
     ${rowRange('hidden', 'Hidden', '아래쪽 레인 가림', 0, 100, 5, s.hidden, v => `${v}%`, {disabled:true, soon:true})}
-    ${rowToggle('hitEffect', '히트 이펙트', null, s.hitEffect)}
-    ${rowSeg('frameCap', '프레임 제한', '고주사율은 자동 지원', [{v:'0',t:'AUTO'},{v:'60',t:'60'},{v:'30',t:'30'}], String(s.frameCap))}
-    <div class="st-sec">표시</div>
-    ${rowToggle('showCombo', '콤보 표시', null, s.showCombo)}
-    ${rowToggle('showJudgment', '판정 표시', null, s.showJudgment)}
-    ${rowToggle('showFastSlow', 'Fast/Slow 표시', null, s.showFastSlow)}
+    ${rowToggle('hitEffect', 'Hit Effect', '히트 이펙트', s.hitEffect)}
+    ${rowSeg('frameCap', 'Frame Cap', '프레임 제한 — 고주사율은 자동 지원', [{v:'0',t:'AUTO'},{v:'60',t:'60'},{v:'30',t:'30'}], String(s.frameCap))}
+    <div class="st-sec">Display</div>
+    ${rowToggle('showCombo', 'Combo', '콤보 표시', s.showCombo)}
+    ${rowToggle('showJudgment', 'Judgment', '판정 표시', s.showJudgment)}
+    ${rowToggle('showFastSlow', 'Fast / Slow', 'Fast/Slow 표시', s.showFastSlow)}
   `;
 }
 
@@ -156,17 +158,19 @@ function tabGauge(s) {
       <div class="st-label">${g.t}<small>${g.d}</small></div>
       <div class="st-seg"><button data-seg="gauge" data-val="${g.v}" class="${s.gauge===g.v?'on':''}">${s.gauge===g.v?'선택됨':'선택'}</button></div>
     </div>`).join('');
-  return `<div class="st-sec">게이지 / 클리어 조건 (하나 선택)</div>${rows}`;
+  return `<div class="st-sec">Gauge / Clear</div>
+    <div class="st-note" style="text-align:center;color:var(--tx2)">게이지 / 클리어 조건 (하나 선택)</div>${rows}`;
 }
 
 function tabOption(s) {
   return `
-    <div class="st-sec">기록 저장됨</div>
+    <div class="st-sec">Recorded</div>
+    <div class="st-note" style="text-align:center;color:var(--tx2)">기록이 저장되는 옵션</div>
     ${rowToggle('mirror', 'Mirror', '좌우 반전', s.mirror, {disabled:true, soon:true})}
     ${rowToggle('random', 'Random', '일반 노트 레인 셔플', s.random, {disabled:true, soon:true})}
-    <div class="st-sec" style="color:var(--orange)">기록 저장 안 됨</div>
+    <div class="st-sec" style="color:var(--orange);border-top-color:var(--orange)">Not Recorded</div>
     <div class="st-note">아래 옵션을 켜면 플레이 기록(점수)이 저장되지 않습니다.</div>
-    ${rowToggle('cmod', '등속 (CMOD)', 'BPM 변화 무시, 일정 속도', s.cmod, {disabled:true, soon:true})}
+    ${rowToggle('cmod', 'Constant (CMOD)', '등속 — BPM 변화 무시, 일정 속도', s.cmod, {disabled:true, soon:true})}
     ${rowToggle('autoplay', 'Autoplay', '자동 플레이', s.autoplay)}
     ${rowToggle('staticShape', 'Static Shape', 'Shape 고정 (-2/+2), 노트 연습', s.staticShape, {disabled:true, soon:true})}
     ${rowToggle('noFail', 'No Fail', '게이지 0이어도 안 죽음', s.noFail)}

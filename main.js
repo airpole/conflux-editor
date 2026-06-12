@@ -88,10 +88,20 @@ const setMetaField = (arg, e) => {
 // session, snapshots work via autoSave, and resets the back stack so Title is
 // a fresh root (editor→title shouldn't be unwound by goBack).
 function exitToTitle() {
+  // Tear down any live play + fullscreen so nothing overlays the next scene.
+  // playFS is a z-index:9999 fixed overlay; if it stays shown it covers the
+  // logo and swallows clicks, which is why exiting could appear "stuck".
   if (PS.playActive) import('./play.js').then(m => m.stopPlay());
+  const exitFs = document.exitFullscreen || document.webkitExitFullscreen;
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    if (exitFs) exitFs.call(document).catch(() => {});
+  }
+  const fs = $('playFS');
+  if (fs) fs.classList.remove('show');
+  PS.playFullscreen = false;
   autoSave();
   resetSceneStack();
-  goScene('title');
+  goScene('modeselect');
 }
 
 const CLICK_ACTIONS = {

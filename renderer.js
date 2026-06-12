@@ -102,13 +102,14 @@ export function drawNoteHead(ctx, isWide, x, y, w, h, color, radius = 3) {
     ctx.roundRect(x, y - h / 2, w, h, radius);
     ctx.fill();
   } else if (_noteSkin === 'circle') {
-    // Normal note, circle skin: a pill/circle centered in the note's slot.
-    // Diameter follows the note thickness (h); width may exceed h (wide lane
-    // hit-area), so draw a horizontal capsule that becomes a true circle when
-    // w ≈ h. Keeps the same x/center/color as the bar so judgment is unchanged.
-    const r = h / 2;
+    // Normal note, circle skin: a TRUE circle (equal width & height) centered
+    // in the note's lane slot. Diameter = lane width (w); the circle is drawn
+    // about the slot center (x + w/2, y) so it reads as round, not a stretched
+    // pill. Center/color/x-range match the bar so judgment is unchanged.
+    const cx = x + w / 2;
+    const rad = w / 2;
     ctx.beginPath();
-    ctx.roundRect(x, y - r, w, h, r);
+    ctx.arc(cx, y, rad, 0, Math.PI * 2);
     ctx.fill();
   } else {
     // Normal note, bar skin (default).
