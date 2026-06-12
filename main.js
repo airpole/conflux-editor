@@ -40,6 +40,7 @@ import { syncMeta, addTempo, editTempo, delTempo,
 import { onDispatch } from './commands.js';
 import { playToggle, playRestart, playSeekTo, playSeekPreview } from './play.js';
 import { togglePlayFullscreen, drawPlayIdle } from './play-render.js';
+import { setPlayContext, makeEditorContext } from './play-context.js';
 import { setGauge, setLockTarget, setLockMode, toggleFastSlow, initPlayOptionsUI } from './play-options.js';
 import { resultRetry, resultBack } from './play-result.js';
 import { resetKeyBindings, loadKeyBindings, renderKeyCfg } from './key-config.js';
@@ -165,6 +166,14 @@ document.addEventListener('input',  e => dispatchAction(INPUT_ACTIONS, e));
 // ============================================================
 window.addEventListener('DOMContentLoaded', () => {
   onDispatch(_afterAnyCommand);
+
+  // Bind the shared play engine to editor state. From here on the engine
+  // reads/writes ES through CTX; game mode will swap this for a game context.
+  // redrawPlayIdle reproduces the original idle-repaint (resize then redraw),
+  // which the engine now triggers via CTX.redrawIdle() after a session ends.
+  setPlayContext(makeEditorContext(ES, {
+    redrawPlayIdle() { rszActiveCanvas(); drawPlayIdle(); },
+  }));
 
   // Defensive Still/Arc → Linear migration (in case storage skipped load-chart)
   D.shapeEvents.forEach(e => {

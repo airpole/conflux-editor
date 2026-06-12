@@ -1,9 +1,9 @@
 // ============================================================
 //  PLAY — playLoop + startPlay / stopPlay + control wrappers
 // ============================================================
-import { $, LEAD_IN_MS, PLAY_RESUME_LEAD_MS } from './constants.js';
+import { $, LEAD_IN_MS } from './constants.js';
 import { D } from './state.js';
-import { ES } from './editor-state.js';
+import { CTX } from './play-context.js';
 import { PS } from './play-state.js';
 import { AS } from './audio-state.js';
 import { fmtMs } from './utility.js';
@@ -23,13 +23,10 @@ import { toast } from './utility.js';
 function playLoop(ts) {
   if (!PS.playActive) return;
   const curMs = PS.playOffMs + (ts - PS.playT0) * AS.playbackRate;
-  // Audio gate: start the buffer when curMs crosses the session's audio
-  // start point (0 for from-beginning; the selected position for mid-chart
-  // starts, after the silent resume lead-in). startAud(curMs+offset) syncs
-  // the buffer to the actual frame time, so frame quantization can't desync.
-  if (!PS.playAudioStarted && curMs >= (PS.playAudioStartAtMs || 0)) {
+  // Lead-in: start audio when curMs crosses 0
+  if (!PS.playAudioStarted && curMs >= 0) {
     PS.playAudioStarted = true;
-    startAud(curMs + D.metadata.offset);
+    startAud(D.metadata.offset);
     // Rebind the hit scheduler at the exact moment audio comes online.
     // resetHitScheduler in startPlay was based on the negative lead-in
     // timestamp; by the time PS.playAudioStarted flips to true, the loop
@@ -42,7 +39,7 @@ function playLoop(ts) {
   if (curMs >= 0) {
     if (PS.playAutoplay) {
       // Pre-schedule hitsounds 150ms ahead
-      if (PS.playAudioStarted && AS.actx && AS.hitBuf && ES.hitVol > 0) {
+      if (PS.playAudioStarted && AS.actx && AS.hitBuf && CTX.hitVol > 0) {
         scheduleHitsounds(curMs, 150, AS.actx, playHitAt);
       }
       autoJudge(
@@ -70,19 +67,6 @@ function playLoop(ts) {
           if (gaugeOnJudgment('MISS')) PS.playForceEnded = true;
         }
       );
-      // LN tail completion (manual). A held LN succeeds at the exact tail
-      // moment — combo rises here, NOT when the key is later released. keyup
-      // only handles early release (mid-release MISS). Iterating playHoldState
-      // mirrors the autoplay tail loop above so both paths resolve identically.
-      for (const ch of Object.keys(PS.playHoldState)) {
-        const note = PS.playHoldState[ch];
-        const rec = PS.playHitMap.get(note);
-        if (!rec || !rec.isLN || rec.tailDone) { delete PS.playHoldState[ch]; continue; }
-        if (curMs >= rec.tailMs) {
-          applyTailSuccess(note, curMs);
-          delete PS.playHoldState[ch];
-        }
-      }
     }
   }
   // ── Force-end (gauge death / terminate-mode lock break) ──────
@@ -100,9 +84,9 @@ function playLoop(ts) {
     drawPlayScreen(cv, curMs);
   }
   // Sync windowed playbar (skip while user is dragging the thumb)
-  if (!PS.playFullscreen && ES.totalMs > 0 && PS.seekDragMs == null) {
+  if (!PS.playFullscreen && CTX.totalMs > 0 && PS.seekDragMs == null) {
     if (dom.seek) {
-      const newVal = Math.max(0, Math.min(1000, Math.round((curMs / ES.totalMs) * 1000)));
+      const newVal = Math.max(0, Math.min(1000, Math.round((curMs / CTX.totalMs) * 1000)));
       if (+dom.seek.value !== newVal) dom.seek.value = newVal;
     }
     if (dom.time) {
@@ -111,7 +95,7 @@ function playLoop(ts) {
     }
   }
   // ── Natural song end ─────────────────────────────────────────
-  if (curMs > (ES.totalMs || 0) + 2000) {
+  if (curMs > (CTX.totalMs || 0) + 2000) {
     // In manual play, evaluate clear/fail and produce a result before stopping.
     if (!PS.playAutoplay) finalizePlay(/*forceEnded=*/false);
     else stopPlay();
@@ -129,31 +113,12 @@ function playLoop(ts) {
  * a later step; for now the outcome lives on PS.playResult.)
  */
 function finalizePlay(forceEnded) {
-  // Resolve any LN whose head was hit but whose tail never completed. On a
-  // natural end the per-frame tail check has already finished held notes, so
-  // this only catches force-end (fail-stop) cases where the player was still
-  // holding — those tails are charged as failed so the result reflects them
-  // instead of silently dropping the tail point.
-  for (const rec of PS.playHitMap.values()) {
-    if (rec.seeded) continue;   // seeded spanning LNs were never the player's to hold
-    if (rec.isLN && !rec.tailDone) {
-      rec.tailDone = true;
-      rec.tailFailed = true;
-    }
-  }
   if (forceEnded) {
     for (const n of D.notes) {
       if (!PS.playHitMap.has(n) && !PS.playMissSet.has(n)) PS.playMissSet.add(n);
     }
   }
   const result = computeResult(forceEnded);
-  // Record eligibility: best records only count full runs at 1.0x. Mid-chart
-  // starts (Space) carry seeded auto-SYNCs and reduced playback rate makes
-  // every window easier — both would let partial/slowed sessions overwrite
-  // legitimate bests. Stamped here because stopPlay() resets the flags.
-  result.recordEligible = !!PS.playStartedFromBeginning
-                          && !PS.playUsedSlowRate
-                          && AS.playbackRate >= 1;
   const wasAutoplay = PS.playAutoplay;
   stopPlay();
   // Autoplay runs are practice — no Result/record. Manual sessions show the
@@ -196,12 +161,7 @@ function _startPlayImpl(fromBeginning, autoplay) {
   const autoChkEl = $('playAutoChk');
   if (autoChkEl) PS.playAutoplay = !!autoChkEl.checked;
 
-  // From-beginning: classic negative lead-in, audio at 0. Mid-chart (Space):
-  // start PLAY_RESUME_LEAD_MS early so empty shapes scroll in silence, with
-  // notes and audio beginning at the selected position itself.
-  const resumeFrom = Math.max(0, ES.sharedMs);
-  const offMs = fromBeginning ? -LEAD_IN_MS : resumeFrom - PLAY_RESUME_LEAD_MS;
-  PS.playAudioStartAtMs = fromBeginning ? 0 : resumeFrom;
+  const offMs = fromBeginning ? -LEAD_IN_MS : CTX.sharedMs;
   PS.playOffMs = offMs;
   PS.playActive = true;
   PS.playStartedFromBeginning = !!fromBeginning;
@@ -218,17 +178,11 @@ function _startPlayImpl(fromBeginning, autoplay) {
   PS.playHitMap.clear(); PS.playMissSet.clear(); PS.playEffects = [];
   PS.playCombo = 0; PS.playMaxCombo = 0; PS.playJudgQueue = [];
   PS.playHoldState = {}; PS.playKeyHeld.clear();
-  PS.playKeyPressMs = {};
-  PS.playUsedSlowRate = AS.playbackRate < 1;
 
   // Gauge / clear-mark lock + Fast-Slow counters reset for the new session.
   resetGauge();
 
-  // Seed everything before the playable region: for mid-chart starts that is
-  // the SELECTED position, not the lead-in start — notes inside the silent
-  // lead-in window are pre-resolved so the run-up stays visually empty and
-  // unjudged, exactly as if the chart began at the selected point.
-  seedPlayStateFromCurMs(fromBeginning ? offMs : resumeFrom);
+  seedPlayStateFromCurMs(offMs);
 
   resetMissChecker(offMs);
   resetHitScheduler(offMs);
@@ -246,22 +200,20 @@ function _startPlayImpl(fromBeginning, autoplay) {
     rszActiveCanvas();
   }
 
-  // Audio comes online inside playLoop when curMs crosses
-  // PS.playAudioStartAtMs — both for the from-beginning lead-in (target 0)
-  // and the silent resume lead-in (target = selected position).
+  if (!fromBeginning) {
+    startAud(offMs + D.metadata.offset);
+    PS.playAudioStarted = true;
+  }
   PS.playT0 = performance.now();
   PS.playRAF = requestAnimationFrame(playLoop);
 }
 
 export function stopPlay() {
   if (!PS.playActive) return;
-  // Snapshot current play position so the next ▶ resumes from there. If the
-  // session was stopped during the silent resume lead-in (audio not yet
-  // started), keep the previously selected position instead of rewinding
-  // into the lead-in window.
+  // Snapshot current play position so the next ▶ resumes from there.
   const curMs = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate;
-  if (isFinite(curMs) && curMs > 0 && PS.playAudioStarted) {
-    ES.sharedMs = Math.min(curMs, ES.totalMs || curMs);
+  if (isFinite(curMs) && curMs > 0) {
+    CTX.sharedMs = Math.min(curMs, CTX.totalMs || curMs);
   }
   PS.playActive = false;
   cancelAnimationFrame(PS.playRAF); PS.playRAF = null;
@@ -280,36 +232,29 @@ export function stopPlay() {
   $('playBtn').textContent = '▶';
 
   if (!PS.playAutoplay) {
-    const cnt = {sync: 0, perfect: 0, good: 0, tails: 0};
-    for (const v of PS.playHitMap.values()) {
-      if (v.seeded) continue;            // pre-seeded notes are not the player's hits
-      if (v.headType === 'SYNC') cnt.sync++;
-      else if (v.headType === 'PERFECT') cnt.perfect++;
-      else if (v.headType === 'GOOD') cnt.good++;
-      if (v.isLN && v.tailDone && !v.tailFailed) cnt.tails++;
-    }
+    const cnt = [...PS.playHitMap.values()].reduce((a, v) => {
+      if (v.headType === 'SYNC') a.sync++;
+      else if (v.headType === 'PERFECT') a.perfect++;
+      else if (v.headType === 'GOOD') a.good++;
+      return a;
+    }, {sync: 0, perfect: 0, good: 0});
     const sC = cnt.sync, pC = cnt.perfect, gC = cnt.good;
     const total = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0);
-    // Same weighting as computeResult (SYNC 100 / PERFECT 70 / GOOD 30), and
-    // successful LN tails count as full hits — the old toast ignored tails,
-    // understating accuracy on every chart with holds.
-    const acc = total > 0 ? ((sC + cnt.tails + pC * 0.7 + gC * 0.3) / total * 100) : 0;
+    const acc = total > 0 ? ((sC + pC * 0.9 + gC * 0.5) / total * 100) : 0;
     toast(`SYNC:${sC} PERFECT:${pC} GOOD:${gC} MISS:${PS.playMissSet.size} | ${acc.toFixed(1)}% | Combo:${PS.playMaxCombo}`);
   }
 
-  if (ES.totalMs > 0) {
+  if (CTX.totalMs > 0) {
     const seek = $('playSeek');
-    if (seek) seek.value = Math.max(0, Math.min(1000, Math.round((ES.sharedMs / ES.totalMs) * 1000)));
+    if (seek) seek.value = Math.max(0, Math.min(1000, Math.round((CTX.sharedMs / CTX.totalMs) * 1000)));
   }
   const tm = $('playTime');
-  if (tm) tm.textContent = fmtMs(Math.max(0, ES.sharedMs));
+  if (tm) tm.textContent = fmtMs(Math.max(0, CTX.sharedMs));
 
-  requestAnimationFrame(() => {
-    if (ES.activeTab === 'play') {
-      rszActiveCanvas();
-      import('./play-render.js').then(m => m.drawPlayIdle());
-    }
-  });
+  // Idle repaint is host-specific: the editor only redraws while the Play tab
+  // is active (and must resize the active canvas first); the game redraws its
+  // own idle frame. Both behaviours live in the host's CTX.redrawIdle().
+  requestAnimationFrame(() => { CTX.redrawIdle(); });
 }
 
 // ── Play tab inline controls ─────────────────────────────
@@ -324,21 +269,21 @@ export function playRestart() {
 }
 
 export function playSeekPreview(v) {
-  if (!ES.totalMs) return;
-  const ms = (v / 1000) * ES.totalMs;
+  if (!CTX.totalMs) return;
+  const ms = (v / 1000) * CTX.totalMs;
   PS.seekDragMs = ms;
   const tm = $('playTime'); if (tm) tm.textContent = fmtMs(ms);
   if (!PS.playActive) {
-    ES.sharedMs = ms;
+    CTX.sharedMs = ms;
     import('./play-render.js').then(m => m.drawPlayIdle());
   }
 }
 
 export function playSeekTo(v) {
   PS.seekDragMs = null;
-  if (!ES.totalMs) return;
-  const ms = (v / 1000) * ES.totalMs;
-  ES.sharedMs = ms;
+  if (!CTX.totalMs) return;
+  const ms = (v / 1000) * CTX.totalMs;
+  CTX.sharedMs = ms;
   $('playTime').textContent = fmtMs(ms);
   if (!PS.playActive) {
     import('./play-render.js').then(m => m.drawPlayIdle());
@@ -351,8 +296,6 @@ export function playSeekTo(v) {
   PS.playHitMap.clear(); PS.playMissSet.clear(); PS.playEffects = [];
   PS.playCombo = 0; PS.playMaxCombo = 0; PS.playJudgQueue = [];
   PS.playHoldState = {}; PS.playKeyHeld.clear();
-  PS.playKeyPressMs = {};
-  PS.playAudioStartAtMs = Math.max(0, ms);
   seedPlayStateFromCurMs(ms);
   resetMissChecker(ms);
   resetHitScheduler(ms);

@@ -15,7 +15,7 @@
 import { TPB, CHL, WIDE_BODY, WIDE_COLOR, OVERLAP_COLOR, OVERLAP_BODY,
          NORMAL_BODY, INVALID_COLOR } from './constants.js';
 import { D } from './state.js';
-import { ES } from './editor-state.js';
+import { CTX } from './play-context.js';
 import { ms2t, t2ms, getSortedTS } from './timing.js';
 import { sp2f, getShape, getLines, buildShapePointArrays,
          getStepTicks, getShapeEventTicks,
@@ -30,7 +30,7 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   drawJacketBackground(ctx, gx, gy, gw, gh);
 
   const curTk = ms2t(curMs);
-  const visMs = 2000 / ES.pvSpd;
+  const visMs = 2000 / CTX.pvSpd;
   const jY = gy + gh * (8 / 9);
   const topMs = curMs + visMs, botMs = curMs - visMs * 0.15;
   const p2x = p => gx + sp2f(p) * gw;
@@ -77,8 +77,6 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     const wIsHit = opts.hitMap.has(wn);
     const wIsMiss = opts.missSet && opts.missSet.has(wn);
     const wHitRec = wIsHit ? opts.hitMap.get(wn) : null;
-    // Pre-seeded (resume lead-in / seek seeding): invisible for the session.
-    if (wHitRec && wHitRec.seeded) continue;
     const wIsMidRelease = !!(wHitRec && wHitRec.isLN && wHitRec.tailFailed);
     if (wIsHit && !wIsMiss && !wIsMidRelease) {
       drawSt = Math.max(wst, curTk);
@@ -201,10 +199,6 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     isHit = opts.hitMap.has(n);
     isMissed = opts.missSet && opts.missSet.has(n);
     const hitRec = isHit ? opts.hitMap.get(n) : null;
-    // Pre-seeded notes (resume lead-in / seek seeding) are invisible for the
-    // whole session — the silent run-up must show only empty shapes, and a
-    // seeded note must never scroll through the judgment area afterwards.
-    if (hitRec && hitRec.seeded) { _gfState.set(n, null); continue; }
     const isMidRelease = !!(hitRec && hitRec.isLN && hitRec.tailFailed);
     let alpha = 1;
     if (isHit && !n.duration) { alpha = Math.max(0, 1 - (curMs - nMs) / 100); }
@@ -247,19 +241,10 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
       if (hy > gy - 20 && hy < gy + gh + 20) {
         const effectiveOv = s.isMissed ? null : s.ov;
         const hc = headColorAtTick(drawHead, effectiveOv, n.startTick);
-        const th = ES.nThk * (n.isWide ? 1 : .9);
+        const th = CTX.nThk * (n.isWide ? 1 : .9);
         const rx0 = n.isWide ? Math.min(hp.x, hp.x + hp.w) : hp.x + hp.w * .05;
         const rw  = n.isWide ? Math.abs(hp.w)              : hp.w - hp.w * .05 * 2;
-        // Chord emphasis: overlap (gold) heads get a glow + bright edge so
-        // simultaneous notes on Lines 2/3 read unmistakably as chords.
-        const isChord = hc === OVERLAP_COLOR;
-        if (isChord) { ctx.save(); ctx.shadowColor = OVERLAP_COLOR; ctx.shadowBlur = 10; }
         drawNoteHead(ctx, n.isWide, rx0, hy, rw, th, hc, 4);
-        if (isChord) {
-          ctx.restore();
-          ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1;
-          ctx.strokeRect(rx0 + 0.5, hy - th / 2 + 0.5, rw - 1, th - 1);
-        }
         if (opts.showInvalid && s.ov && s.ov.type === 'invalid') {
           ctx.save();
           ctx.strokeStyle = INVALID_COLOR; ctx.lineWidth = 2;
@@ -271,7 +256,7 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
       }
     } else {
       const y = tk2y(n.startTick); if (y < gy - 20 || y > gy + gh + 20) { ctx.globalAlpha = 1; continue; }
-      const th = ES.nThk * (n.isWide ? 1 : .9);
+      const th = CTX.nThk * (n.isWide ? 1 : .9);
       let rx0, rw;
       if (n.isWide && isStepTick(n.startTick)) {
         const stk = n.startTick;
@@ -287,14 +272,6 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
         rw  = n.isWide ? Math.abs(p.w)            : p.w - p.w * .05 * 2;
       }
       drawNoteHead(ctx, n.isWide, rx0, y, rw, th, drawHead, 4);
-      // Chord emphasis for tap heads (same treatment as LN heads above).
-      if (drawHead === OVERLAP_COLOR) {
-        ctx.save(); ctx.shadowColor = OVERLAP_COLOR; ctx.shadowBlur = 10;
-        drawNoteHead(ctx, n.isWide, rx0, y, rw, th, drawHead, 4);
-        ctx.restore();
-        ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1;
-        ctx.strokeRect(rx0 + 0.5, y - th / 2 + 0.5, rw - 1, th - 1);
-      }
       if (opts.showInvalid && s.ov && s.ov.type === 'invalid') {
         ctx.save();
         ctx.strokeStyle = INVALID_COLOR; ctx.lineWidth = 2;
@@ -307,91 +284,34 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     ctx.globalAlpha = 1;
   }
 
-  // Key beams — input feedback. A soft light rises from the judgment line on
-  // each lane whose key is pressed: steady glow while held, brighter flash
-  // right after the press. The beam FOLLOWS THE SHAPE: at every height it is
-  // bounded by the lane's actual left/right edges at the tick that maps to
-  // that height, so a moving/narrowing shape bends the light with it instead
-  // of leaving a straight column floating off the lane.
-  // opts.keyBeams = [{li, a}] (line index 0-3, alpha) — live Play only.
-  if (opts.keyBeams && opts.keyBeams.length) {
-    const beamTop = Math.max(gy, jY - gh * 0.22);
-    const SAMPLES = 28;
-    // y → tick along the scroll: invert tk2y. y = jY - ((ms-curMs)/visMs)*(jY-gy)
-    const yToTk = y => ms2t(curMs + ((jY - y) / (jY - gy)) * visMs);
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    for (const b of opts.keyBeams) {
-      // Sample the lane's [left,right] at each height.
-      const pts = [];
-      let ok = true;
-      for (let s = 0; s <= SAMPLES; s++) {
-        const y = jY + (beamTop - jY) * (s / SAMPLES);
-        const info = getTkInfo(yToTk(y));
-        const sh = info.sh, lines = info.lines;
-        const lx = p2x(sh.left), rx = p2x(sh.right), sw = rx - lx;
-        let cum = 0;
-        for (let k = 0; k < b.li; k++) cum += lines[k] / 100;
-        const x0 = lx + cum * sw;
-        const x1 = x0 + (lines[b.li] / 100) * sw;
-        if (!isFinite(x0) || !isFinite(x1)) { ok = false; break; }
-        pts.push({ y, xL: Math.min(x0, x1), xR: Math.max(x0, x1) });
-      }
-      if (!ok || pts.length < 2) continue;
-      const grad = ctx.createLinearGradient(0, jY, 0, beamTop);
-      grad.addColorStop(0, `rgba(255,255,255,${Math.min(0.6, b.a).toFixed(3)})`);
-      grad.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(pts[0].xL, pts[0].y);
-      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].xL, pts[i].y);
-      for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(pts[i].xR, pts[i].y);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
   // Judgment line — doubles as the life-gauge bar during a live session.
   // opts.gauge = {value: 0..100, type: 'normal'|'hard'} when playing; absent
   // in editor/idle previews, where we draw the plain white line instead.
-  // Judgment line — one bar, two roles. The line itself IS the empty gauge
-  // track; during a live session the gauge fills it left→right in the gauge
-  // color. Track and fill share JLINE_H so there is no thickness mismatch
-  // between "judgment line" and "gauge" — an empty gauge looks exactly like
-  // the editor's judgment line.
-  const JLINE_H = 5;
   if (opts.gauge) {
     const frac = Math.max(0, Math.min(1, opts.gauge.value / 100));
     // Gauge tint by type (shared palette): Normal green, Hard red.
     const fill = opts.gauge.color || (opts.gauge.type === 'hard' ? '#ff4a5a' : '#4aff8a');
-    // Empty track = the judgment line.
-    ctx.fillStyle = 'rgba(255,255,255,0.30)';
-    ctx.fillRect(gx, jY - JLINE_H / 2, gw, JLINE_H);
-    // Filled portion.
+    // Unfilled track (faint), then the filled portion left→right.
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(gx, jY - 3, gw, 6);
     ctx.fillStyle = fill;
-    ctx.fillRect(gx, jY - JLINE_H / 2, gw * frac, JLINE_H);
-    // Bright leading-edge tick so the current level reads at a glance.
-    if (frac > 0 && frac < 1) {
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(gx + gw * frac - 1, jY - JLINE_H / 2 - 1, 2, JLINE_H + 2);
-    }
-    // Soft glow under the filled portion only.
-    const glow = ctx.createLinearGradient(0, jY - 7, 0, jY + 7);
+    ctx.fillRect(gx, jY - 3, gw * frac, 6);
+    // Bright leading edge + thin baseline so the judgment position stays legible.
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(gx, jY); ctx.lineTo(gx + gw, jY); ctx.stroke();
+    const glow = ctx.createLinearGradient(0, jY - 6, 0, jY + 6);
     glow.addColorStop(0, 'rgba(255,255,255,0)');
     glow.addColorStop(0.5, fill + '55');
     glow.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = glow; ctx.fillRect(gx, jY - 7, gw * frac, 14);
+    ctx.fillStyle = glow; ctx.fillRect(gx, jY - 6, gw * frac, 12);
   } else {
-    // Editor / idle preview: same bar, neutral white — visually identical to
-    // an empty gauge so Play and editor agree on the judgment position.
-    ctx.fillStyle = 'rgba(255,255,255,0.45)';
-    ctx.fillRect(gx, jY - JLINE_H / 2, gw, JLINE_H);
-    const gr = ctx.createLinearGradient(0, jY - 7, 0, jY + 7);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(gx, jY); ctx.lineTo(gx + gw, jY); ctx.stroke();
+    const gr = ctx.createLinearGradient(0, jY - 6, 0, jY + 6);
     gr.addColorStop(0, 'rgba(255,255,255,0)');
     gr.addColorStop(0.5, 'rgba(255,255,255,0.12)');
     gr.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = gr; ctx.fillRect(gx, jY - 7, gw, 14);
+    ctx.fillStyle = gr; ctx.fillRect(gx, jY - 6, gw, 12);
   }
 
   // Hit effects — water ripple
