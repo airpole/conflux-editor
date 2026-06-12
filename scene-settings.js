@@ -26,8 +26,7 @@ export function initSettingsScene(deps) { _deps = deps; }
 const CSS = `
 #scene-settings{
   background:var(--bg); color:var(--tx);
-  display:flex; flex-direction:column;
-  position:absolute; inset:0;
+  display:flex; flex-direction:column; height:100%; overflow:hidden;
   user-select:none; -webkit-user-select:none;
 }
 #scene-settings .st-top{
