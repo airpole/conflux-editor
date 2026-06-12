@@ -25,6 +25,7 @@ export const AS = {
 
   musicGain: null,
   hitGain: null,
+  masterGain: null,
 
   hitBuf: null,
   isMetronomeOn: false,

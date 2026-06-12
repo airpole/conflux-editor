@@ -45,6 +45,11 @@ import { registerScene, goScene, resetSceneStack } from './scene-manager.js';
 import { FEATURES, START_SCENE } from './config.js';
 import { mountTitle, enterTitle, exitTitle } from './scene-title.js';
 import { mountModeSelect } from './scene-modeselect.js';
+import { loadSettings, applySettings } from './settings.js';
+import { mountSettings, initSettingsScene } from './scene-settings.js';
+import { setNoteSkin } from './renderer.js';
+import { setVolumes } from './audio.js';
+import { toast } from './utility.js';
 import { setGauge, setLockTarget, setLockMode, toggleFastSlow, initPlayOptionsUI } from './play-options.js';
 import { resultRetry, resultBack } from './play-result.js';
 import { resetKeyBindings, loadKeyBindings, renderKeyCfg } from './key-config.js';
@@ -190,6 +195,18 @@ window.addEventListener('DOMContentLoaded', () => {
     redrawPlayIdle() { rszActiveCanvas(); drawPlayIdle(); },
   }));
 
+  // Load persisted player settings and apply them to the engine. `settingsDeps`
+  // bundles the live engine objects so settings.js imports none of them itself.
+  loadSettings();
+  const settingsDeps = {
+    ES, PS,
+    setNoteSkin,
+    audio: { setVolumes },
+    openKeyConfig() { toast('키 설정은 에디터 Meta 탭에서 (추후 이동 예정)'); },
+  };
+  applySettings(settingsDeps);
+  initSettingsScene(settingsDeps);
+
   // Register top-level scenes. The editor is one scene among several; title and
   // mode-select are the new entry flow. Settings/music-select/game register in
   // later stages. Boot lands on START_SCENE (config) — 'title' for real builds,
@@ -218,6 +235,10 @@ window.addEventListener('DOMContentLoaded', () => {
   registerScene('modeselect', {
     el: $('scene-modeselect'),
     mount: mountModeSelect,
+  });
+  registerScene('settings', {
+    el: $('scene-settings'),
+    mount: mountSettings,
   });
 
   // START_SCENE may be 'editor' (dev) even when the public default is 'title'.

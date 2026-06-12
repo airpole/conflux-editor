@@ -12,10 +12,17 @@ import { t2ms } from './timing.js';
 export function initAud() {
   if (!AS.actx) AS.actx = new (window.AudioContext || window.webkitAudioContext)();
   if (AS.actx.state === 'suspended') AS.actx.resume();
+  // Master gain sits between music/effect and the speakers so a single fader
+  // scales everything. Created first so the others can connect into it.
+  if (!AS.masterGain) {
+    AS.masterGain = AS.actx.createGain();
+    AS.masterGain.gain.value = 1.0;
+    AS.masterGain.connect(AS.actx.destination);
+  }
   if (!AS.musicGain) {
     AS.musicGain = AS.actx.createGain();
     AS.musicGain.gain.value = 0.7;
-    AS.musicGain.connect(AS.actx.destination);
+    AS.musicGain.connect(AS.masterGain);
   }
   if (!AS.hitGain) {
     AS.hitGain = AS.actx.createGain();
@@ -27,7 +34,7 @@ export function initAud() {
     comp.attack.value = 0.001;
     comp.release.value = 0.05;
     AS.hitGain.connect(comp);
-    comp.connect(AS.actx.destination);
+    comp.connect(AS.masterGain);
   }
   if (!AS.hitBuf) {
     const sr = AS.actx.sampleRate, len = Math.floor(sr * 0.025);
@@ -41,6 +48,16 @@ export function initAud() {
                   + Math.sin(2 * Math.PI * 1200 * t) * 0.1) * 0.8;
     }
   }
+}
+
+/**
+ * Set the three volume faders (0..1). Safe to call before initAud — values are
+ * stored and applied once the gain nodes exist (re-called from applySettings).
+ */
+export function setVolumes(master, music, effect) {
+  if (AS.masterGain) AS.masterGain.gain.value = master;
+  if (AS.musicGain)  AS.musicGain.gain.value  = music;
+  if (AS.hitGain)    AS.hitGain.gain.value    = effect;
 }
 
 export function playHit() {
@@ -61,39 +78,21 @@ export function playHitAt(when) {
 
 export function setPlaybackRate(val) {
   const newRate = Math.max(0.5, Math.min(1.0, val / 100));
-  // Capture both clocks ONCE up front so the audio and play-session
-  // re-anchors describe the same instant. Reading performance.now() twice
-  // (as before) let a few ms leak between the two anchors, drifting the
-  // judgment clock from the audio clock on every rate change.
-  const nowPerf = performance.now();
-  const nowCtx = AS.actx ? AS.actx.currentTime : 0;
-  const oldRate = AS.playbackRate;
-
-  // Re-anchor audio timing if currently playing (convert elapsed at OLD rate).
+  // Re-anchor audio timing if currently playing
   if (AS.asrc && AS.actx) {
-    const elapsed = nowCtx - AS.audStartCtxTime;
-    AS.audStartSec = AS.audStartSec + elapsed * oldRate;
-    AS.audStartCtxTime = nowCtx;
+    const elapsed = AS.actx.currentTime - AS.audStartCtxTime;
+    AS.audStartSec = AS.audStartSec + elapsed * AS.playbackRate;
+    AS.audStartCtxTime = AS.actx.currentTime;
     try { AS.asrc.playbackRate.value = newRate; } catch (e) {}
   }
-  // Re-anchor play session timing against the SAME performance.now() reading.
-  let curMs = null;
+  // Re-anchor play session timing
   if (PS.playActive) {
-    curMs = PS.playOffMs + (nowPerf - PS.playT0) * oldRate;
+    const curMs = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate;
     PS.playOffMs = curMs;
-    PS.playT0 = nowPerf;
+    PS.playT0 = performance.now();
   }
   AS.playbackRate = newRate;
-  if (PS.playActive && newRate < 1) PS.playUsedSlowRate = true;
   $('rateLbl').textContent = AS.playbackRate.toFixed(2) + 'x';
-
-  // Hitsounds pre-scheduled under the old rate now point at the wrong audio
-  // time. Rebind the scheduler from the current position so the next frame
-  // re-queues the lookahead window against the new rate. (Only relevant in an
-  // active autoplay session; manual play emits hits on key press, not ahead.)
-  if (PS.playActive && curMs !== null) {
-    import('./scheduler.js').then(m => m.resetHitScheduler(curMs)).catch(() => {});
-  }
 }
 
 export function playMetronome(isDownbeat) {

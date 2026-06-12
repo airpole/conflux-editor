@@ -59,7 +59,7 @@ export function mountModeSelect(el) {
     <div class="ms-title">MODE</div>
     <button class="ms-btn ms-play" id="msPlay">PLAY</button>
     ${FEATURES.editor ? '<button class="ms-btn" id="msEditor">EDITOR</button>' : ''}
-    <button class="ms-btn ms-disabled" id="msSettings">SETTINGS</button>
+    <button class="ms-btn" id="msSettings">SETTINGS</button>
     <button class="ms-back" id="msBack">\u2039 BACK</button>
   `;
 
@@ -76,10 +76,10 @@ export function mountModeSelect(el) {
     if (ed) ed.addEventListener('click', () => goScene('editor'));
   }
 
-  // Settings: built in Stage 4. Disabled placeholder.
-  el.querySelector('#msSettings').addEventListener('click', () => {
-    toast('Settings 준비 중');
-  });
+  // Settings scene.
+  const settingsBtn = el.querySelector('#msSettings');
+  settingsBtn.classList.remove('ms-disabled');
+  settingsBtn.addEventListener('click', () => goScene('settings'));
 
   el.querySelector('#msBack').addEventListener('click', () => goBack());
 }
