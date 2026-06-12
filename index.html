@@ -10,6 +10,8 @@
 html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;touch-action:none;user-select:none}
 input,select,textarea{touch-action:auto;user-select:text;-webkit-user-select:text}
 button,select{font-family:inherit}
+#sceneRoot{width:100%;height:100%}
+.scene{display:none;width:100%;height:100%}
 #app{width:100%;height:100%;display:flex;flex-direction:column}
 .nav{display:flex;height:34px;background:var(--bg2);border-bottom:1px solid var(--brd);padding:0 3px;align-items:center;flex-shrink:0;gap:2px}
 .nav .logo{font-size:10px;font-weight:800;color:var(--acc2);letter-spacing:2px;padding:0 3px}
@@ -127,7 +129,16 @@ canvas{display:block;position:absolute;top:0;left:0}
 </style>
 </head>
 <body>
-<div id="app">
+<!-- Scene root: top-level screens (title / mode-select / settings / music-select
+     / editor / game). The scene-manager toggles which one is visible via
+     display. New scenes are empty mount points filled by their own JS module
+     (scene-*.js); the editor (#app) keeps its existing markup as one scene. -->
+<div id="sceneRoot">
+<div id="scene-title" class="scene"></div>
+<div id="scene-modeselect" class="scene"></div>
+<div id="scene-settings" class="scene"></div>
+<div id="scene-musicselect" class="scene"></div>
+<div id="app" class="scene">
   <div class="nav">
     <span class="logo">CONFLUX</span>
     <button class="nb on" data-action="goTab" data-arg="note">Notes</button>
@@ -292,7 +303,7 @@ canvas{display:block;position:absolute;top:0;left:0}
     <h3>Preview</h3>
     <div class="mr2">
       <div><label>Speed</label><input id="mSpd" type="number" value="3.0" min="0.5" max="10" step="0.05"></div>
-      <div><label>Note Thickness</label><input id="mThk" type="number" value="15" min="2" max="40"></div>
+      <div><label>Note Thickness</label><input id="mThk" type="number" value="12" min="2" max="40"></div>
     </div>
     <h3>키 설정 (Play Mode)</h3>
     <div style="font-size:9px;color:var(--tx2);margin-bottom:4px">슬롯을 클릭한 뒤 원하는 키를 누르세요. 중복 시 자동 교환됩니다.</div>
@@ -313,8 +324,8 @@ canvas{display:block;position:absolute;top:0;left:0}
     </div>
     <div class="pvbar" id="playOptBar" style="gap:2px;flex-wrap:wrap">
       <span class="bi" style="opacity:.6">Gauge</span>
-      <button class="nsm" data-action="setGauge" data-arg="normal" title="Normal 게이지 (0% 시작, 종료 시 75% 이상 클리어 · 증가량은 채보 규모에 비례)">Normal</button>
-      <button class="nsm" data-action="setGauge" data-arg="hard" title="Hard 게이지 (100% 시작, 0% 도달 시 즉시 실패 · 30% 미만 감소 완화)">Hard</button>
+      <button class="nsm" data-action="setGauge" data-arg="normal" title="Normal 게이지 (종료 시 75% 이상 클리어)">Normal</button>
+      <button class="nsm" data-action="setGauge" data-arg="hard" title="Hard 게이지 (100% 시작, 0% 도달 시 실패 / 20미스)">Hard</button>
       <span class="bi" style="opacity:.6;margin-left:6px">Lock</span>
       <button class="nsm" data-action="setLockTarget" data-arg="none" title="추가 잠금 없음">None</button>
       <button class="nsm" data-action="setLockTarget" data-arg="fc" title="Full Combo: MISS 없음">FC</button>
@@ -338,6 +349,8 @@ canvas{display:block;position:absolute;top:0;left:0}
 
   <div class="bot"><span class="bi" id="botI">Notes: 0 | Shape: 2</span><span class="sp"></span><span class="bi" id="botI2"></span></div>
 </div>
+<div id="scene-game" class="scene"></div>
+</div><!-- /sceneRoot -->
 
 <!-- Play Fullscreen Overlay -->
 <div id="playFS">

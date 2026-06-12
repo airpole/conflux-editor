@@ -41,6 +41,7 @@ import { onDispatch } from './commands.js';
 import { playToggle, playRestart, playSeekTo, playSeekPreview } from './play.js';
 import { togglePlayFullscreen, drawPlayIdle } from './play-render.js';
 import { setPlayContext, makeEditorContext } from './play-context.js';
+import { registerScene, goScene } from './scene-manager.js';
 import { setGauge, setLockTarget, setLockMode, toggleFastSlow, initPlayOptionsUI } from './play-options.js';
 import { resultRetry, resultBack } from './play-result.js';
 import { resetKeyBindings, loadKeyBindings, renderKeyCfg } from './key-config.js';
@@ -174,6 +175,17 @@ window.addEventListener('DOMContentLoaded', () => {
   setPlayContext(makeEditorContext(ES, {
     redrawPlayIdle() { rszActiveCanvas(); drawPlayIdle(); },
   }));
+
+  // Register the editor as one scene and show it. New scenes (title, mode-
+  // select, settings, music-select, game) register later; until then the app
+  // boots straight into the editor exactly as before — scene system is a
+  // dormant layer with a single registered scene.
+  registerScene('editor', {
+    el: $('app'),
+    display: 'flex',          // #app is a flex column; preserve that when shown
+    onEnter() { requestAnimationFrame(() => rszActiveCanvas()); },
+  });
+  goScene('editor');
 
   // Defensive Still/Arc → Linear migration (in case storage skipped load-chart)
   D.shapeEvents.forEach(e => {
