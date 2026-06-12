@@ -31,7 +31,7 @@ const CSS = `
 }
 #scene-settings .st-top{
   display:flex; align-items:center; gap:10px; padding:10px 12px;
-  border-bottom:1px solid var(--brd);
+  border-bottom:1px solid var(--brd); flex-shrink:0;
 }
 #scene-settings .st-logo{
   font-size:16px; font-weight:800; letter-spacing:.16em; color:var(--acc2);
@@ -39,14 +39,14 @@ const CSS = `
 }
 #scene-settings .st-heading{ font-size:13px; color:var(--tx2); letter-spacing:.2em; }
 #scene-settings .st-tabs{
-  display:flex; gap:2px; padding:8px 12px 0; border-bottom:1px solid var(--brd);
+  display:flex; gap:2px; padding:8px 12px 0; border-bottom:1px solid var(--brd); flex-shrink:0;
 }
 #scene-settings .st-tab{
   flex:1; padding:9px 4px; background:none; border:none; cursor:pointer;
   color:var(--tx2); font-size:12px; letter-spacing:.08em; border-bottom:2px solid transparent;
 }
 #scene-settings .st-tab.on{ color:var(--acc2); border-bottom-color:var(--acc); }
-#scene-settings .st-body{ flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:12px 12px 40px; }
+#scene-settings .st-body{ flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y; padding:12px 12px 40px; }
 #scene-settings .st-row{
   display:flex; align-items:center; justify-content:space-between;
   padding:10px 2px; border-bottom:1px solid #ffffff0d; gap:12px;
@@ -256,3 +256,10 @@ export function mountSettings(el) {
   el.querySelector('.st-tab[data-tab="play"]').classList.add('on');
   renderBody(body);
 }
+
+// ── Keyboard: Esc returns to the previous scene ──────────────
+function onSettingsKey(e) {
+  if (e.key === 'Escape') { goBack(); e.preventDefault(); }
+}
+export function enterSettings() { window.addEventListener('keydown', onSettingsKey); }
+export function exitSettings()  { window.removeEventListener('keydown', onSettingsKey); }

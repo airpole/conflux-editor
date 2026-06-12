@@ -44,9 +44,9 @@ import { setPlayContext, makeEditorContext } from './play-context.js';
 import { registerScene, goScene, resetSceneStack } from './scene-manager.js';
 import { FEATURES, START_SCENE } from './config.js';
 import { mountTitle, enterTitle, exitTitle } from './scene-title.js';
-import { mountModeSelect } from './scene-modeselect.js';
+import { mountModeSelect, enterModeSelect, exitModeSelect } from './scene-modeselect.js';
 import { loadSettings, applySettings } from './settings.js';
-import { mountSettings, initSettingsScene } from './scene-settings.js';
+import { mountSettings, initSettingsScene, enterSettings, exitSettings } from './scene-settings.js';
 import { setNoteSkin } from './renderer.js';
 import { setVolumes } from './audio.js';
 import { toast } from './utility.js';
@@ -245,10 +245,14 @@ window.addEventListener('DOMContentLoaded', () => {
   registerScene('modeselect', {
     el: $('scene-modeselect'),
     mount: mountModeSelect,
+    onEnter() { enterModeSelect($('scene-modeselect')); },
+    onExit()  { exitModeSelect(); },
   });
   registerScene('settings', {
     el: $('scene-settings'),
     mount: mountSettings,
+    onEnter() { enterSettings(); },
+    onExit()  { exitSettings(); },
   });
 
   // START_SCENE may be 'editor' (dev) even when the public default is 'title'.

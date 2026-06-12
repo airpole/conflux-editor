@@ -25,6 +25,7 @@ const CSS = `
   font-size:clamp(14px,4vw,20px); font-weight:800; letter-spacing:.18em;
   color:var(--acc2); cursor:pointer; margin-bottom:6px; opacity:.85;
 }
+#scene-modeselect .ms-btn.kbsel{ outline:2px solid var(--acc2); outline-offset:2px; background:var(--bg3); }
 #scene-modeselect .ms-title{
   font-size:clamp(20px,6vw,32px); font-weight:700; color:var(--acc2);
   letter-spacing:.1em; margin-bottom:10px;
@@ -82,4 +83,46 @@ export function mountModeSelect(el) {
   settingsBtn.addEventListener('click', () => goScene('settings'));
 
   el.querySelector('#msBack').addEventListener('click', () => goBack());
+}
+
+// ── Keyboard navigation ──────────────────────────────────────
+// Arrow keys move the highlight across the selectable mode buttons; Enter
+// activates; Esc goes back. Listeners attach on scene enter and detach on exit
+// so they never fire while another scene is active.
+let _kbBtns = [];   // current selectable buttons in order
+let _kbIdx = 0;
+let _kbEl = null;
+
+function kbRefresh() {
+  if (!_kbEl) return;
+  _kbBtns = [...(_kbEl.querySelectorAll('#msPlay, #msEditor, #msSettings'))];
+  if (_kbIdx >= _kbBtns.length) _kbIdx = 0;
+  kbPaint();
+}
+function kbPaint() {
+  _kbBtns.forEach((b, i) => b.classList.toggle('kbsel', i === _kbIdx));
+}
+function onModeKey(e) {
+  if (!_kbBtns.length) kbRefresh();
+  switch (e.key) {
+    case 'ArrowDown': case 'ArrowRight':
+      _kbIdx = (_kbIdx + 1) % _kbBtns.length; kbPaint(); e.preventDefault(); break;
+    case 'ArrowUp': case 'ArrowLeft':
+      _kbIdx = (_kbIdx - 1 + _kbBtns.length) % _kbBtns.length; kbPaint(); e.preventDefault(); break;
+    case 'Enter':
+      if (_kbBtns[_kbIdx]) _kbBtns[_kbIdx].click(); e.preventDefault(); break;
+    case 'Escape':
+      goBack(); e.preventDefault(); break;
+  }
+}
+
+export function enterModeSelect(el) {
+  _kbEl = el; _kbIdx = 0;
+  kbRefresh();
+  window.addEventListener('keydown', onModeKey);
+}
+export function exitModeSelect() {
+  window.removeEventListener('keydown', onModeKey);
+  _kbBtns.forEach(b => b.classList.remove('kbsel'));
+  _kbBtns = []; _kbEl = null;
 }
