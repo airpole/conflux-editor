@@ -26,12 +26,14 @@ export function initSettingsScene(deps) { _deps = deps; }
 const CSS = `
 #scene-settings{
   background:var(--bg); color:var(--tx);
-  display:flex; flex-direction:column; height:100%; overflow:hidden;
+  display:flex; flex-direction:column; height:100%;
+  overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;
   user-select:none; -webkit-user-select:none;
 }
 #scene-settings .st-top{
   display:flex; align-items:center; gap:10px; padding:10px 12px;
   border-bottom:1px solid var(--brd); flex-shrink:0;
+  position:sticky; top:0; background:var(--bg); z-index:2;
 }
 #scene-settings .st-logo{
   font-size:16px; font-weight:800; letter-spacing:.16em; color:var(--acc2);
@@ -40,13 +42,14 @@ const CSS = `
 #scene-settings .st-heading{ font-size:13px; color:var(--tx2); letter-spacing:.2em; }
 #scene-settings .st-tabs{
   display:flex; gap:2px; padding:8px 12px 0; border-bottom:1px solid var(--brd); flex-shrink:0;
+  position:sticky; top:51px; background:var(--bg); z-index:2;
 }
 #scene-settings .st-tab{
   flex:1; padding:9px 4px; background:none; border:none; cursor:pointer;
   color:var(--tx2); font-size:12px; letter-spacing:.08em; border-bottom:2px solid transparent;
 }
 #scene-settings .st-tab.on{ color:var(--acc2); border-bottom-color:var(--acc); }
-#scene-settings .st-body{ flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y; padding:12px 12px 40px; }
+#scene-settings .st-body{ padding:12px 12px 60px; }
 #scene-settings .st-row{
   display:flex; align-items:center; justify-content:space-between;
   padding:10px 2px; border-bottom:1px solid #ffffff0d; gap:12px;
@@ -84,7 +87,7 @@ function injectCSS() {
 // Visible fall time (ms): base = 2000/hiSpeed (top of field → judgment line),
 // reduced by Sudden/Hidden which cover part of the field. Mirrors game-render's
 // visMs and the cover fractions, so the readout matches what's actually seen.
-function fallTimeMs(s) {
+function visibleTimeMs(s) {
   const base = 2000 / (s.hiSpeed || 3);
   const covered = Math.min(0.95, (s.sudden || 0) / 100 + (s.hidden || 0) / 100);
   return Math.round(base * (1 - covered));
@@ -125,8 +128,8 @@ function tabPlay(s) {
   return `
     ${rowRange('hiSpeed', 'Hi-Speed', '스크롤 속도', 1, 8, 0.1, s.hiSpeed, v => (+v).toFixed(1))}
     <div class="st-row">
-      <div class="st-label">Fall Time<small>낙하시간 — 노트가 보이는 시간 (Sudden/Hidden 반영)</small></div>
-      <span class="st-val" id="stFallMs" style="min-width:60px">${fallTimeMs(s)}ms</span>
+      <div class="st-label">Visible Time<small>노트가 보이는 시간 (Sudden/Hidden 반영)</small></div>
+      <span class="st-val" id="stVisibleMs" style="min-width:60px">${visibleTimeMs(s)}ms</span>
     </div>
     ${rowRange('audioOffset', 'Audio Offset', '오디오 오프셋 — 음악 출력 지연 보정 (ms)', -200, 200, 1, s.audioOffset, v => `${v>0?'+':''}${v}ms`)}
     ${rowRange('visualOffset', 'Visual Offset', '비주얼 오프셋 — 노트/판정 타이밍 보정 (ms)', -200, 200, 1, s.visualOffset, v => `${v>0?'+':''}${v}ms`)}
@@ -238,8 +241,8 @@ function wireBody(host) {
       // on screen (PLAY tab). sudden/hidden live on VISUAL, so this is a no-op
       // there — the value is recomputed when PLAY is next rendered anyway.
       if (key === 'hiSpeed' || key === 'sudden' || key === 'hidden') {
-        const fm = host.querySelector('#stFallMs');
-        if (fm) fm.textContent = fallTimeMs(getSettings()) + 'ms';
+        const fm = host.querySelector('#stVisibleMs');
+        if (fm) fm.textContent = visibleTimeMs(getSettings()) + 'ms';
       }
     });
     r.addEventListener('dblclick', () => {
@@ -249,8 +252,8 @@ function wireBody(host) {
       if (lbl) lbl.textContent = fmtVal(key, def);
       setSetting(key, def, _deps);
       if (key === 'hiSpeed' || key === 'sudden' || key === 'hidden') {
-        const fm = host.querySelector('#stFallMs');
-        if (fm) fm.textContent = fallTimeMs(getSettings()) + 'ms';
+        const fm = host.querySelector('#stVisibleMs');
+        if (fm) fm.textContent = visibleTimeMs(getSettings()) + 'ms';
       }
     });
   });
