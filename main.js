@@ -42,6 +42,9 @@ import { playToggle, playRestart, playSeekTo, playSeekPreview } from './play.js'
 import { togglePlayFullscreen, drawPlayIdle } from './play-render.js';
 import { setPlayContext, makeEditorContext } from './play-context.js';
 import { registerScene, goScene } from './scene-manager.js';
+import { FEATURES, START_SCENE } from './config.js';
+import { mountTitle, enterTitle, exitTitle } from './scene-title.js';
+import { mountModeSelect } from './scene-modeselect.js';
 import { setGauge, setLockTarget, setLockMode, toggleFastSlow, initPlayOptionsUI } from './play-options.js';
 import { resultRetry, resultBack } from './play-result.js';
 import { resetKeyBindings, loadKeyBindings, renderKeyCfg } from './key-config.js';
@@ -176,16 +179,31 @@ window.addEventListener('DOMContentLoaded', () => {
     redrawPlayIdle() { rszActiveCanvas(); drawPlayIdle(); },
   }));
 
-  // Register the editor as one scene and show it. New scenes (title, mode-
-  // select, settings, music-select, game) register later; until then the app
-  // boots straight into the editor exactly as before — scene system is a
-  // dormant layer with a single registered scene.
+  // Register top-level scenes. The editor is one scene among several; title and
+  // mode-select are the new entry flow. Settings/music-select/game register in
+  // later stages. Boot lands on START_SCENE (config) — 'title' for real builds,
+  // flippable to 'editor' during development.
   registerScene('editor', {
     el: $('app'),
     display: 'flex',          // #app is a flex column; preserve that when shown
     onEnter() { requestAnimationFrame(() => rszActiveCanvas()); },
   });
-  goScene('editor');
+  registerScene('title', {
+    el: $('scene-title'),
+    mount: mountTitle,
+    onEnter() { enterTitle($('scene-title')); },
+    onExit()  { exitTitle($('scene-title')); },
+  });
+  registerScene('modeselect', {
+    el: $('scene-modeselect'),
+    mount: mountModeSelect,
+  });
+
+  // START_SCENE may be 'editor' (dev) even when the public default is 'title'.
+  // Guard the editor route behind FEATURES.editor so a game-only build can't
+  // boot into it by a stale config value.
+  const boot = (START_SCENE === 'editor' && !FEATURES.editor) ? 'title' : START_SCENE;
+  goScene(boot);
 
   // Defensive Still/Arc → Linear migration (in case storage skipped load-chart)
   D.shapeEvents.forEach(e => {
