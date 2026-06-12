@@ -85,13 +85,33 @@ export function splitBodyByOverlap(n, ov, startTk, endTk, defaultCol) {
  * visual. Sets ctx.fillStyle — caller is responsible for ctx.globalAlpha
  * and any shadow/outline before/after.
  */
+// ── Note skin (normal notes only) ────────────────────────────
+// 'bar' (default) = the classic rectangular note. 'circle' = rounded note.
+// Wide notes are NEVER affected — they always keep their rounded-rect shape.
+// Shared by editor (notes-render) and game (game-render) via this one module,
+// so changing the skin in Settings updates both at once.
+let _noteSkin = 'bar';
+export function setNoteSkin(skin) { _noteSkin = (skin === 'circle') ? 'circle' : 'bar'; }
+export function getNoteSkin() { return _noteSkin; }
+
 export function drawNoteHead(ctx, isWide, x, y, w, h, color, radius = 3) {
   ctx.fillStyle = color;
   if (isWide) {
+    // Wide note: always rounded-rect, regardless of skin.
     ctx.beginPath();
     ctx.roundRect(x, y - h / 2, w, h, radius);
     ctx.fill();
+  } else if (_noteSkin === 'circle') {
+    // Normal note, circle skin: a pill/circle centered in the note's slot.
+    // Diameter follows the note thickness (h); width may exceed h (wide lane
+    // hit-area), so draw a horizontal capsule that becomes a true circle when
+    // w ≈ h. Keeps the same x/center/color as the bar so judgment is unchanged.
+    const r = h / 2;
+    ctx.beginPath();
+    ctx.roundRect(x, y - r, w, h, r);
+    ctx.fill();
   } else {
+    // Normal note, bar skin (default).
     ctx.fillRect(x, y - h / 2, w, h);
   }
 }

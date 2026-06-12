@@ -21,6 +21,10 @@ const CSS = `
   display:flex; flex-direction:column; align-items:center; justify-content:center;
   gap:14px; user-select:none; -webkit-user-select:none;
 }
+#scene-modeselect .ms-logo{
+  font-size:clamp(14px,4vw,20px); font-weight:800; letter-spacing:.18em;
+  color:var(--acc2); cursor:pointer; margin-bottom:6px; opacity:.85;
+}
 #scene-modeselect .ms-title{
   font-size:clamp(20px,6vw,32px); font-weight:700; color:var(--acc2);
   letter-spacing:.1em; margin-bottom:10px;
@@ -51,12 +55,16 @@ function injectCSS() {
 export function mountModeSelect(el) {
   injectCSS();
   el.innerHTML = `
+    <div class="ms-logo" id="msLogo">CONFLUX</div>
     <div class="ms-title">MODE</div>
     <button class="ms-btn ms-play" id="msPlay">PLAY</button>
     ${FEATURES.editor ? '<button class="ms-btn" id="msEditor">EDITOR</button>' : ''}
     <button class="ms-btn ms-disabled" id="msSettings">SETTINGS</button>
     <button class="ms-back" id="msBack">\u2039 BACK</button>
   `;
+
+  // Logo doubles as a back-to-title affordance, matching the editor logo.
+  el.querySelector('#msLogo').addEventListener('click', () => goBack());
 
   // Play: music-select doesn't exist until Stage 5.
   el.querySelector('#msPlay').addEventListener('click', () => {
