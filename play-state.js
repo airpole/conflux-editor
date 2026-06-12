@@ -31,10 +31,6 @@ export const PS = {
   playT0: 0,
   playOffMs: 0,
   playAudioStarted: false,
-  // Play-time ms at which audio should come online. 0 for from-beginning
-  // (audio starts when the lead-in crosses zero); the selected position for
-  // mid-chart starts (Space), so the resume lead-in scrolls silently.
-  playAudioStartAtMs: 0,
 
   playHitMap: new Map(),
   playMissSet: new Set(),
@@ -45,15 +41,9 @@ export const PS = {
 
   playHoldState: {},
   playKeyHeld: new Set(),
-  // channel -> play-time ms of the most recent keydown. Drives the lane
-  // key-beam flash in game-render (visual input feedback).
-  playKeyPressMs: {},
 
   playRAF: null,
   seekDragMs: null,
-  // True if any moment of the current session ran below 1.0x — checked at
-  // finalize so a last-second rate bump can't re-qualify a slowed run.
-  playUsedSlowRate: false,
 
   // ── Gauge / clear-mark lock (game mode) ──────────────────────
   // Set before a session (from Music Select inline options); reset values are
@@ -85,6 +75,7 @@ export const PS = {
   fastCount: 0,
   slowCount: 0,
   showFastSlow: true,      // Settings toggle
+  syncOffset: 0,           // personal audio offset (ms); subtracted from input time
 };
 
 /** Rebuild PS.codeToChannel from PS.keyBindings. Called on key bind change. */

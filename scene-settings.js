@@ -26,7 +26,8 @@ export function initSettingsScene(deps) { _deps = deps; }
 const CSS = `
 #scene-settings{
   background:var(--bg); color:var(--tx);
-  display:flex; flex-direction:column; height:100dvh; max-height:100dvh;
+  display:flex; flex-direction:column;
+  position:absolute; inset:0;
   user-select:none; -webkit-user-select:none;
 }
 #scene-settings .st-top{
@@ -115,7 +116,7 @@ function rowRange(key, label, sub, min, max, step, current, fmt, opts) {
 function tabPlay(s) {
   return `
     ${rowRange('hiSpeed', 'Hi-Speed', '스크롤 속도', 1, 8, 0.1, s.hiSpeed, v => (+v).toFixed(1))}
-    ${rowRange('syncOffset', 'Sync Offset', '싱크 조정 — 오디오 지연 보정 (ms)', -100, 100, 1, s.syncOffset, v => `${v>0?'+':''}${v}ms`, {disabled:true, soon:true})}
+    ${rowRange('syncOffset', 'Sync Offset', '싱크 조정 — 오디오 지연 보정 (ms)', -100, 100, 1, s.syncOffset, v => `${v>0?'+':''}${v}ms`)}
     ${rowToggle('showFallMs', 'Fall Time', '낙하시간 표시 — 노트가 보이는 시간(ms)', s.showFallMs, {disabled:true, soon:true})}
     <div class="st-sec">Volume</div>
     ${rowRange('volMaster', 'Master Volume', '마스터 볼륨', 0, 1, 0.01, s.volMaster, v => Math.round(v*100)+'%')}
@@ -216,6 +217,7 @@ function wireBody(host) {
         if (key.startsWith('vol') || key === 'laneOpacity') lbl.textContent = Math.round(val*100)+'%';
         else if (key === 'hiSpeed') lbl.textContent = val.toFixed(1);
         else if (key === 'bgBrightness' || key === 'sudden' || key === 'hidden') lbl.textContent = val+'%';
+        else if (key === 'syncOffset') lbl.textContent = `${val>0?'+':''}${val}ms`;
         else lbl.textContent = String(val);
       }
       setSetting(key, val, _deps);

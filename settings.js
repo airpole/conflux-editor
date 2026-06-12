@@ -148,6 +148,7 @@ export function applySettings(deps) {
     d.PS.lockMode = lk.lockMode;
     d.PS.showFastSlow = s.showFastSlow;
     d.PS.playAutoplay = s.autoplay;
+    d.PS.syncOffset = s.syncOffset;
   }
 
   // Audio gains (master / music / effect).

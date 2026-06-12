@@ -21,7 +21,7 @@ import { sp2f, getShape, getLines, buildShapePointArrays,
          getStepTicks, getShapeEventTicks,
          countShapeEventsInRange, isStepTick } from './shape.js';
 import { computeNoteOverlaps, classifyNotesForZOrder } from './overlaps.js';
-import { resolveNoteColor, headColorAtTick, splitBodyByOverlap, drawNoteHead } from './renderer.js';
+import { resolveNoteColor, headColorAtTick, splitBodyByOverlap, drawNoteHead, getNoteSkin } from './renderer.js';
 import { drawJacketBackground } from './jacket.js';
 import { makeTkInfoCache, drawShapeBoundary, drawStepConnectors,
          STYLE_GAME, STYLE_GAME_STEP } from './shape-render-helpers.js';
@@ -223,6 +223,23 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
         const from = Math.max(seg.tkFrom, st);
         const to = Math.min(seg.tkTo, et);
         if (from < to) drawGFBody(n, s.li, from, to, seg.col);
+      }
+      // Circle skin: round off the long-note tail with a cap matching the head,
+      // so a held note reads as a rounded pill end-to-end (head cap is drawn in
+      // Pass 2). Normal notes only — wide LNs keep their existing shape.
+      if (getNoteSkin() === 'circle') {
+        const ety = tk2y(et);
+        if (ety > gy - 20 && ety < gy + gh + 20) {
+          const tp = gNX(et, n, s.li, true);
+          const trx = tp.x + tp.w * .05;
+          const trw = tp.w - tp.w * .05 * 2;
+          const tcx = trx + trw / 2;
+          const trad = trw / 2;
+          ctx.fillStyle = s.bodyCol;
+          ctx.beginPath();
+          ctx.arc(tcx, ety, trad, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
     }
     ctx.globalAlpha = 1;
