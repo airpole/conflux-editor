@@ -48,7 +48,7 @@ import { mountModeSelect, enterModeSelect, exitModeSelect } from './scene-modese
 import { loadSettings, applySettings } from './settings.js';
 import { mountSettings, initSettingsScene, enterSettings, exitSettings } from './scene-settings.js';
 import { setNoteSkin } from './renderer.js';
-import { setVolumes } from './audio.js';
+import { setVolumes, setAudioOffset } from './audio.js';
 import { toast } from './utility.js';
 import { setGauge, setLockTarget, setLockMode, toggleFastSlow, initPlayOptionsUI } from './play-options.js';
 import { resultRetry, resultBack } from './play-result.js';
@@ -212,6 +212,7 @@ window.addEventListener('DOMContentLoaded', () => {
     ES, PS,
     setNoteSkin,
     audio: { setVolumes },
+    setAudioOffset,
     openKeyConfig() { toast('키 설정은 에디터 Meta 탭에서 (추후 이동 예정)'); },
   };
   applySettings(settingsDeps);

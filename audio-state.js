@@ -26,6 +26,7 @@ export const AS = {
   musicGain: null,
   hitGain: null,
   masterGain: null,
+  audioOffset: 0,   // ms; personal audio-latency offset (+ = music starts earlier)
 
   hitBuf: null,
   isMetronomeOn: false,

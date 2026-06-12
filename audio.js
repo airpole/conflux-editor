@@ -117,6 +117,8 @@ export function toggleMetronome() {
 // ============================================================
 //  AUDIO SOURCE LIFECYCLE
 // ============================================================
+export function setAudioOffset(ms) { AS.audioOffset = ms || 0; }
+
 export function startAud(fromMs) {
   initAud();
   if (AS.asrc) try { AS.asrc.stop(); } catch (e) {}
@@ -124,7 +126,11 @@ export function startAud(fromMs) {
   AS.asrc = AS.actx.createBufferSource(); AS.asrc.buffer = AS.abuf;
   AS.asrc.playbackRate.value = AS.playbackRate;
   AS.asrc.connect(AS.musicGain || AS.actx.destination);
-  const startSec = Math.max(0, fromMs / 1000);
+  // Audio offset advances/retards the music relative to note timing. Positive
+  // offset starts the music slightly further into the track, so the beat is
+  // heard earlier — compensating output latency (e.g. Bluetooth) where music
+  // would otherwise lag the notes. Visual offset (judge timing) is separate.
+  const startSec = Math.max(0, (fromMs + (AS.audioOffset || 0)) / 1000);
   AS.asrc.start(0, startSec);
   AS.audStartCtxTime = AS.actx.currentTime;
   AS.audStartSec = startSec;

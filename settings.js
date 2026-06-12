@@ -8,7 +8,7 @@
 // those places so existing engine code keeps working unchanged.
 //
 // Category layout (mirrors the Settings scene tabs):
-//   PLAY    — hiSpeed, syncOffset, showFallMs, (keybindings live in PS),
+//   PLAY    — hiSpeed, audioOffset, visualOffset, showFallMs, (keybindings live in PS),
 //             volMaster / volMusic / volEffect
 //   VISUAL  — noteSkin, laneOpacity, bgBrightness, sudden, hidden,
 //             hitEffect, frameCap, showCombo, showJudgment, showFastSlow
@@ -30,7 +30,8 @@ const KEY = LS_PREFIX + 'settings';
 export const DEFAULT_SETTINGS = {
   // PLAY
   hiSpeed: 3.0,          // scroll speed (was ES.pvSpd)
-  syncOffset: 0,         // personal audio offset in ms (Stage 5 applies it)
+  audioOffset: 0,        // ms; shifts MUSIC start (+ = music earlier, for laggy audio out)
+  visualOffset: 0,       // ms; shifts JUDGE time (+ = input treated earlier, for late hitters)
   showFallMs: false,     // show note fall-time readout (Stage 5)
   volMaster: 1.0,
   volMusic: 0.7,
@@ -148,8 +149,12 @@ export function applySettings(deps) {
     d.PS.lockMode = lk.lockMode;
     d.PS.showFastSlow = s.showFastSlow;
     d.PS.playAutoplay = s.autoplay;
-    d.PS.syncOffset = s.syncOffset;
+    d.PS.visualOffset = s.visualOffset;
   }
+
+  // Audio offset shifts the music start; stored where the audio start path reads
+  // it. Kept separate from visualOffset so the two latencies tune independently.
+  if (d.setAudioOffset) d.setAudioOffset(s.audioOffset);
 
   // Audio gains (master / music / effect).
   if (d.audio && d.audio.setVolumes) {

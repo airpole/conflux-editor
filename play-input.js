@@ -16,7 +16,7 @@ export function handlePlayKeyDown(code) {
   // audio latency is compensated. Positive offset advances input (for players
   // who tend to hit late). Applied here so judgment, Fast/Slow, and recorded
   // diff all share one corrected clock.
-  const curMs = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate - (PS.syncOffset || 0);
+  const curMs = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate - (PS.visualOffset || 0);
   const result = getPlayJudgment(ch, curMs);
   if (result) {
     applyJudgment(result.note, result.diff, curMs);
@@ -53,7 +53,7 @@ export function handlePlayKeyUp(code) {
     }
     // Phase 6 D2: classify mid-release vs tail success based on timing.
     // Same sync-offset correction as keypress so tail timing matches.
-    const curMs = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate - (PS.syncOffset || 0);
+    const curMs = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate - (PS.visualOffset || 0);
     const tailMs = t2ms(note.startTick + note.duration);
     if (curMs < tailMs - JUDGE_GOOD) {
       applyMidRelease(note, curMs);

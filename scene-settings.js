@@ -11,11 +11,11 @@
 //   noteThickness, laneOpacity, bgBrightness, volumes, gauge ladder,
 //   autoplay/noFail, keybindings (link to existing config).
 // Placeholder (disabled, wired in later stages):
-//   hiSpeed fine/CMOD, syncOffset, showFallMs, sudden/hidden  (Stage 5)
+//   hiSpeed fine/CMOD, showFallMs, sudden/hidden  (Stage 5)
 //   mirror, random, staticShape                               (Stage 6)
 
 import { goBack } from './scene-manager.js';
-import { getSettings, setSetting, isRecordingDisabled } from './settings.js';
+import { getSettings, setSetting, isRecordingDisabled, DEFAULT_SETTINGS } from './settings.js';
 
 let _deps = null;        // engine deps for setSetting (injected at init)
 let _activeTab = 'play';
@@ -106,7 +106,7 @@ function rowRange(key, label, sub, min, max, step, current, fmt, opts) {
   return `<div class="st-row">
     <div class="st-label">${label}${sub ? `<small>${sub}</small>` : ''}${soon ? ' <span class="st-soon">(준비 중)</span>' : ''}</div>
     <div style="display:flex;align-items:center;gap:8px">
-      <input type="range" data-range="${key}" min="${min}" max="${max}" step="${step}" value="${current}" ${dis ? 'disabled' : ''}>
+      <input type="range" data-range="${key}" min="${min}" max="${max}" step="${step}" value="${current}" title="더블클릭 시 기본값" ${dis ? 'disabled' : ''}>
       <span class="st-val" data-valof="${key}">${fmt(current)}</span>
     </div>
   </div>`;
@@ -116,7 +116,8 @@ function rowRange(key, label, sub, min, max, step, current, fmt, opts) {
 function tabPlay(s) {
   return `
     ${rowRange('hiSpeed', 'Hi-Speed', '스크롤 속도', 1, 8, 0.1, s.hiSpeed, v => (+v).toFixed(1))}
-    ${rowRange('syncOffset', 'Sync Offset', '싱크 조정 — 오디오 지연 보정 (ms)', -100, 100, 1, s.syncOffset, v => `${v>0?'+':''}${v}ms`)}
+    ${rowRange('audioOffset', 'Audio Offset', '오디오 오프셋 — 음악 출력 지연 보정 (ms)', -200, 200, 1, s.audioOffset, v => `${v>0?'+':''}${v}ms`)}
+    ${rowRange('visualOffset', 'Visual Offset', '비주얼 오프셋 — 노트/판정 타이밍 보정 (ms)', -200, 200, 1, s.visualOffset, v => `${v>0?'+':''}${v}ms`)}
     ${rowToggle('showFallMs', 'Fall Time', '낙하시간 표시 — 노트가 보이는 시간(ms)', s.showFallMs, {disabled:true, soon:true})}
     <div class="st-sec">Volume</div>
     ${rowRange('volMaster', 'Master Volume', '마스터 볼륨', 0, 1, 0.01, s.volMaster, v => Math.round(v*100)+'%')}
@@ -205,22 +206,30 @@ function wireBody(host) {
       renderBody(host);   // reflect new state (and gauge single-select)
     });
   });
-  // Range sliders.
+  // Format a slider's value label for a given key.
+  const fmtVal = (key, val) => {
+    if (key.startsWith('vol') || key === 'laneOpacity') return Math.round(val*100)+'%';
+    if (key === 'hiSpeed') return (+val).toFixed(1);
+    if (key === 'bgBrightness' || key === 'sudden' || key === 'hidden') return val+'%';
+    if (key === 'audioOffset' || key === 'visualOffset') return `${val>0?'+':''}${val}ms`;
+    return String(val);
+  };
+  // Range sliders. Double-click (or double-tap) resets to the schema default.
   host.querySelectorAll('[data-range]').forEach(r => {
     if (r.disabled) return;
+    const key = r.dataset.range;
+    const lbl = host.querySelector(`[data-valof="${key}"]`);
     r.addEventListener('input', () => {
-      const key = r.dataset.range;
       const val = +r.value;
-      const lbl = host.querySelector(`[data-valof="${key}"]`);
-      if (lbl) {
-        // Re-derive the formatted label cheaply for common keys.
-        if (key.startsWith('vol') || key === 'laneOpacity') lbl.textContent = Math.round(val*100)+'%';
-        else if (key === 'hiSpeed') lbl.textContent = val.toFixed(1);
-        else if (key === 'bgBrightness' || key === 'sudden' || key === 'hidden') lbl.textContent = val+'%';
-        else if (key === 'syncOffset') lbl.textContent = `${val>0?'+':''}${val}ms`;
-        else lbl.textContent = String(val);
-      }
+      if (lbl) lbl.textContent = fmtVal(key, val);
       setSetting(key, val, _deps);
+    });
+    r.addEventListener('dblclick', () => {
+      const def = DEFAULT_SETTINGS[key];
+      if (def === undefined) return;
+      r.value = def;
+      if (lbl) lbl.textContent = fmtVal(key, def);
+      setSetting(key, def, _deps);
     });
   });
   // Keybinding config shortcut.

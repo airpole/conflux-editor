@@ -75,7 +75,7 @@ export const PS = {
   fastCount: 0,
   slowCount: 0,
   showFastSlow: true,      // Settings toggle
-  syncOffset: 0,           // personal audio offset (ms); subtracted from input time
+  visualOffset: 0,         // ms; subtracted from input time (note/judge timing)
 };
 
 /** Rebuild PS.codeToChannel from PS.keyBindings. Called on key bind change. */
