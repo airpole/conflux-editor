@@ -20,12 +20,42 @@ import { scheduleAutoSave } from './autosave.js';
 
 let _jacketImg = null;          // HTMLImageElement (decoded jacket)
 let _jacketBlurCanvas = null;   // pre-rendered blur backdrop
+// Object URL for the current jacket. Large jackets arrive as multi-MB base64
+// data URLs; assigning that string straight to an <img>.src forces the browser
+// to parse/decode the whole base64 blob on the main thread — and we were doing
+// it twice (decoded image + Meta-tab preview). Converting once to a Blob URL
+// lets both consumers share a lightweight handle and skip the base64 reparse,
+// which is what was freezing input (e.g. the logo click) on big-jacket loads.
+let _jacketObjURL = null;
 let _jacketBlurW = 0, _jacketBlurH = 0;
 
 // Imported lazily to avoid cycle (play-render.js will import jacket.js too).
 function _drawPlayIdle() {
   if (typeof window !== 'undefined' && typeof window.drawPlayIdle === 'function') {
     window.drawPlayIdle();
+  }
+}
+
+// Convert the stored data URL into a Blob URL once, revoking any previous one.
+// Returns the Blob URL, or '' if there is no jacket / conversion fails. Falls
+// back to the raw data URL only if Blob construction throws.
+function _ensureJacketObjURL() {
+  const dataURL = D.metadata.jacketImage || '';
+  if (_jacketObjURL) { try { URL.revokeObjectURL(_jacketObjURL); } catch (e) {} _jacketObjURL = null; }
+  if (!dataURL) return '';
+  // Parse "data:<mime>;base64,<payload>" without a giant regex.
+  const comma = dataURL.indexOf(',');
+  if (comma < 0 || dataURL.indexOf(';base64') < 0) return dataURL; // not base64 — use as-is
+  try {
+    const mime = dataURL.slice(5, dataURL.indexOf(';'));
+    const bin = atob(dataURL.slice(comma + 1));
+    const len = bin.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+    _jacketObjURL = URL.createObjectURL(new Blob([bytes], { type: mime || 'image/png' }));
+    return _jacketObjURL;
+  } catch (e) {
+    return dataURL; // conversion failed — fall back to the data URL
   }
 }
 
@@ -61,6 +91,7 @@ export function _hydrateJacketFromMeta() {
     _jacketBlurCanvas = null;
     return;
   }
+  const url = _ensureJacketObjURL();
   const img = new Image();
   img.onload = () => {
     _jacketImg = img;
@@ -68,7 +99,7 @@ export function _hydrateJacketFromMeta() {
     if (ES.activeTab === 'play' && !PS.playActive) _drawPlayIdle();
   };
   img.onerror = () => { _jacketImg = null; };
-  img.src = dataURL;
+  img.src = url;
 }
 
 export function loadJacket(inp) {
@@ -91,6 +122,7 @@ export function clearJacket() {
   D.metadata.jacketImage = '';
   _jacketImg = null;
   _jacketBlurCanvas = null;
+  if (_jacketObjURL) { try { URL.revokeObjectURL(_jacketObjURL); } catch (e) {} _jacketObjURL = null; }
   _syncJacketUI();
   scheduleAutoSave();
   if (ES.activeTab === 'play' && !PS.playActive) _drawPlayIdle();
@@ -112,7 +144,9 @@ export function _syncJacketUI() {
   const has = !!(D.metadata.jacketImage);
   if (prev) {
     if (has) {
-      prev.src = D.metadata.jacketImage;
+      // Reuse the already-built Blob URL (built by _hydrateJacketFromMeta);
+      // assigning the multi-MB data URL here would re-decode it a second time.
+      prev.src = _jacketObjURL || D.metadata.jacketImage;
       prev.style.display = '';
     } else {
       prev.removeAttribute('src');
