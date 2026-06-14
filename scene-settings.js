@@ -12,7 +12,7 @@
 //   autoplay/noFail, keybindings (link to existing config).
 // Placeholder (disabled, wired in later stages):
 //   hiSpeed fine/CMOD, showFallMs, sudden/hidden  (Stage 5)
-//   mirror, random, staticShape                               (Stage 6)
+//   mirror, staticShape                                       (Stage 6)
 
 import { goBack } from './scene-manager.js';
 import { getSettings, setSetting, isRecordingDisabled, DEFAULT_SETTINGS } from './settings.js';
@@ -182,8 +182,7 @@ function tabOption(s) {
   return `
     <div class="st-sec">Recorded</div>
     <div class="st-note" style="text-align:center;color:var(--tx2)">기록이 저장되는 옵션</div>
-    ${rowToggle('mirror', 'Mirror', '좌우 반전', s.mirror)}
-    ${rowToggle('random', 'Random', '일반 노트 레인 셔플', s.random)}
+    ${rowToggle('mirror', 'Mirror', '좌우 반전 (1↔4, 2↔3)', s.mirror)}
     <div class="st-sec" style="color:var(--orange);border-top-color:var(--orange)">Not Recorded</div>
     <div class="st-note">아래 옵션을 켜면 플레이 기록(점수)이 저장되지 않습니다.</div>
     ${rowToggle('cmod', 'Constant (CMOD)', '등속 — BPM 변화 무시, 일정 속도', s.cmod, {disabled:true, soon:true})}

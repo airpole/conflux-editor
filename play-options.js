@@ -1,22 +1,27 @@
 // ============================================================
-//  PLAY-OPTIONS — gauge / clear-mark lock selection (Play tab)
+//  PLAY-OPTIONS — editor Play-tab quick options (Mirror, Fast/Slow)
 // ============================================================
-// Wires the Play-tab option bar to PS gauge/lock fields. Test/dev controls so
-// Normal vs Hard and the FC/AP/AS locks can be tried without a console. When
-// the real Music Select inline options land, they can reuse these setters.
+// Wires the Play-tab option bar to the player settings. Gauge / clear-mark
+// lock now live in the Settings scene (single source of truth), so the editor
+// bar only carries the two options worth toggling mid-charting:
+//   • Mirror   — lane mirror (1<->4, 2<->3) + shape flip; shares the same value
+//                as the Settings OPTION->Mirror toggle (routed through
+//                setSetting so both UIs and PS.optMirror stay in sync and it
+//                persists).
+//   • F/S      — Fast/Slow feedback display toggle.
 //
-// Selection feedback is COLOR-ONLY (no toast): the chosen button lights up in
-// that gauge/mark's own color (Normal green / Hard red / FC sky / AP yellow /
-// AS white), pulling from the shared palette in constants.js so the bar, the
-// in-game gauge bar, and the Result screen all agree. Options freeze during an
-// active session (a frozen click simply does nothing).
+// Selection feedback is COLOR-ONLY (no toast). Options freeze during an active
+// session (a frozen click does nothing).
 
-import { $, GAUGE_COLOR, LOCK_COLOR } from './constants.js';
+import { $ } from './constants.js';
 import { PS } from './play-state.js';
+import { getSetting, setSetting } from './settings.js';
 
-// Mode buttons (Term/Casc) and the F/S toggle have no dedicated palette color;
-// they use a neutral accent when active.
 const ACCENT = '#cfd3d8';
+
+// Engine deps for setSetting (injected by main at init), so the Mirror toggle
+// can go through the same applySettings path the Settings scene uses.
+let _deps = null;
 
 /** Paint one button as selected (filled with `color`) or idle. */
 function paintBtn(btn, on, color) {
@@ -34,18 +39,14 @@ function paintBtn(btn, on, color) {
   }
 }
 
-function paintGroup(action, currentVal, colorFor) {
-  document.querySelectorAll('[data-action="' + action + '"]').forEach(btn => {
-    const v = btn.dataset.arg;
-    paintBtn(btn, v === currentVal, colorFor(v));
-  });
-}
-
-/** Reflect all current PS option state onto the button colors. */
+/** Reflect current option state onto the button colors. */
 function syncOptUI() {
-  paintGroup('setGauge', PS.gaugeType, v => GAUGE_COLOR[v] || ACCENT);
-  paintGroup('setLockTarget', PS.lockTarget, v => LOCK_COLOR[v] || ACCENT);
-  paintGroup('setLockMode', PS.lockMode, () => ACCENT);
+  const mirBtn = $('optMirror');
+  if (mirBtn) {
+    const on = !!getSetting('mirror');
+    paintBtn(mirBtn, on, ACCENT);
+    mirBtn.textContent = on ? 'Mirror \u2713' : 'Mirror \u2717';
+  }
   const fsBtn = $('optFastSlow');
   if (fsBtn) {
     paintBtn(fsBtn, PS.showFastSlow, ACCENT);
@@ -55,22 +56,12 @@ function syncOptUI() {
 
 function frozen() { return PS.playActive; }
 
-export function setGauge(type) {
+/** Editor Play-tab Mirror toggle. Routes through settings so it persists and
+ *  keeps PS.optMirror in sync with the Settings scene toggle. */
+export function togglePlayMirror() {
   if (frozen()) return;
-  PS.gaugeType = (type === 'hard') ? 'hard' : 'normal';
-  syncOptUI();
-}
-
-export function setLockTarget(target) {
-  if (frozen()) return;
-  const valid = ['none', 'fc', 'ap', 'as'];
-  PS.lockTarget = valid.includes(target) ? target : 'none';
-  syncOptUI();
-}
-
-export function setLockMode(mode) {
-  if (frozen()) return;
-  PS.lockMode = (mode === 'cascade') ? 'cascade' : 'terminate';
+  const next = !getSetting('mirror');
+  setSetting('mirror', next, _deps);   // persists + applySettings -> PS.optMirror
   syncOptUI();
 }
 
@@ -79,5 +70,13 @@ export function toggleFastSlow() {
   syncOptUI();
 }
 
-/** Initial paint so the bar reflects PS defaults on load. */
-export function initPlayOptionsUI() { syncOptUI(); }
+/** Initial paint so the bar reflects current state on load. `deps` is the same
+ *  engine-deps bundle main passes to settings (carries PS for applySettings). */
+export function initPlayOptionsUI(deps) {
+  if (deps) _deps = deps;
+  syncOptUI();
+}
+
+/** Re-sync the bar when the Play tab is shown (Settings may have changed Mirror
+ *  while we were away). */
+export function refreshPlayOptionsUI() { syncOptUI(); }

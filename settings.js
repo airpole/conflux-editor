@@ -13,7 +13,7 @@
 //   VISUAL  — noteSkin, laneOpacity, bgBrightness, sudden, hidden,
 //             hitEffect, frameCap, showCombo, showJudgment, showFastSlow
 //   GAUGE   — gauge (one of: cascade/as/ap/fc/hard/normal)
-//   OPTION  — mirror, random            (recorded)
+//   OPTION  — mirror                    (recorded)
 //             cmod, autoplay, staticShape, noFail   (NOT recorded)
 //
 // Record policy: any "not recorded" option being active means the run's score
@@ -54,7 +54,6 @@ export const DEFAULT_SETTINGS = {
 
   // OPTION (recorded)
   mirror: false,
-  random: false,
   // OPTION (not recorded)
   cmod: false,           // constant scroll speed (ignores BPM changes)
   autoplay: false,
@@ -152,7 +151,6 @@ export function applySettings(deps) {
     d.PS.sudden = s.sudden;
     d.PS.hidden = s.hidden;
     d.PS.optMirror = s.mirror;
-    d.PS.optRandom = s.random;
   }
 
   // Audio offset shifts the music start; stored where the audio start path reads

@@ -50,7 +50,7 @@ import { mountSettings, initSettingsScene, enterSettings, exitSettings } from '.
 import { setNoteSkin } from './renderer.js';
 import { setVolumes, setAudioOffset } from './audio.js';
 import { toast } from './utility.js';
-import { setGauge, setLockTarget, setLockMode, toggleFastSlow, initPlayOptionsUI } from './play-options.js';
+import { togglePlayMirror, toggleFastSlow, initPlayOptionsUI } from './play-options.js';
 import { resultRetry, resultBack } from './play-result.js';
 import { resetKeyBindings, loadKeyBindings, renderKeyCfg } from './key-config.js';
 import { doExport, doImport } from './import-export.js';
@@ -127,7 +127,7 @@ const CLICK_ACTIONS = {
   goFS, toggleEdPlay,
   playToggle, playRestart, togglePlayFullscreen,
   // Play-tab gauge / lock options (test controls)
-  setGauge, setLockTarget, setLockMode, toggleFastSlow,
+  togglePlayMirror, toggleFastSlow,
   // Result overlay
   resultRetry, resultBack,
   showMod, closeMod,
@@ -322,7 +322,7 @@ window.addEventListener('DOMContentLoaded', () => {
   if (autoChk) autoChk.addEventListener('change', e => { PS.playAutoplay = e.target.checked; });
 
   // Paint the gauge/lock option bar to reflect PS defaults.
-  initPlayOptionsUI();
+  initPlayOptionsUI(settingsDeps);
 
   // Long-press paste — Phase 4
   function initLongPressPaste(btnId, shortAction, longAction) {
