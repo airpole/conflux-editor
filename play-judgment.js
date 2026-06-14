@@ -17,7 +17,8 @@ export function getPlayJudgment(channel, curMs) {
     if (n.isWide) {
       // accept any key
     } else {
-      if (n.channel !== line) continue;
+      // Phase 6: match against the note's mapped line (Mirror/Random).
+      if ((PS.lineMap[n.channel] || n.channel) !== line) continue;
     }
     if (PS.playHitMap.has(n) || PS.playMissSet.has(n)) continue;
     const diff = curMs - t2ms(n.startTick);
@@ -52,12 +53,6 @@ export function seedPlayStateFromCurMs(curMs) {
     });
     PS.playCombo++;
     if (isLN && tailIsPast) PS.playCombo++;
-    // Feed the gauge as if the intro was auto-played perfectly: every passed
-    // note's head counts as SYNC, and an LN whose tail already elapsed also
-    // counts its TAIL_OK. Without this the gauge would ignore everything before
-    // the seek point, so a mid-start gauge wouldn't match a from-the-top run.
-    gaugeOnJudgment('SYNC');
-    if (isLN && tailIsPast) gaugeOnJudgment('TAIL_OK');
   }
   if (PS.playCombo > PS.playMaxCombo) PS.playMaxCombo = PS.playCombo;
 }

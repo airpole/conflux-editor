@@ -13,15 +13,16 @@
 // the text-events overlay.
 
 import { TPB, CHL, WIDE_BODY, WIDE_COLOR, OVERLAP_COLOR, OVERLAP_BODY,
-         NORMAL_BODY, INVALID_COLOR, NORMAL_CLEAR_PCT } from './constants.js';
+         NORMAL_BODY, INVALID_COLOR } from './constants.js';
 import { D } from './state.js';
-import { CTX } from './play-context.js';
+import { PS } from './play-state.js';
+import { ES } from './editor-state.js';
 import { ms2t, t2ms, getSortedTS } from './timing.js';
 import { sp2f, getShape, getLines, buildShapePointArrays,
          getStepTicks, getShapeEventTicks,
          countShapeEventsInRange, isStepTick } from './shape.js';
 import { computeNoteOverlaps, classifyNotesForZOrder } from './overlaps.js';
-import { resolveNoteColor, headColorAtTick, splitBodyByOverlap, drawNoteHead, getNoteSkin } from './renderer.js';
+import { resolveNoteColor, headColorAtTick, splitBodyByOverlap, drawNoteHead } from './renderer.js';
 import { drawJacketBackground } from './jacket.js';
 import { makeTkInfoCache, drawShapeBoundary, drawStepConnectors,
          STYLE_GAME, STYLE_GAME_STEP } from './shape-render-helpers.js';
@@ -30,10 +31,11 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   drawJacketBackground(ctx, gx, gy, gw, gh);
 
   const curTk = ms2t(curMs);
-  const visMs = 2000 / CTX.pvSpd;
+  const visMs = 2000 / ES.pvSpd;
   const jY = gy + gh * (8 / 9);
   const topMs = curMs + visMs, botMs = curMs - visMs * 0.15;
-  const p2x = p => gx + sp2f(p) * gw;
+  const _mir = PS.mirrorShape;
+  const p2x = p => _mir ? gx + (1 - sp2f(p)) * gw : gx + sp2f(p) * gw;
   const tk2y = tk => { const ms_ = t2ms(tk); return jY - ((ms_ - curMs) / visMs) * (jY - gy); };
 
   // Frame-scoped {sh, lines} cache (normalized: raw left/right swapped to min/max).
@@ -190,7 +192,7 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     if (ov && ov.type === 'hidden') { _gfState.set(n, null); continue; }
     const nMs = t2ms(n.startTick), neMs = t2ms(n.startTick + (n.duration || 0));
     if (nMs > topMs + 300 || neMs < botMs - 300) { _gfState.set(n, null); continue; }
-    const li = n.isWide ? 0 : CHL[n.channel];
+    const li = n.isWide ? 0 : CHL[(PS.lineMap && PS.lineMap[n.channel]) || n.channel];
     let headCol, bodyCol;
     if (n.isWide) { headCol = WIDE_COLOR; bodyCol = WIDE_BODY; }
     else if (ov && (ov.type === 'merged' || (ov.type === 'yellow' && ov.fullYellow))) { headCol = OVERLAP_COLOR; bodyCol = OVERLAP_BODY; }
@@ -224,23 +226,6 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
         const to = Math.min(seg.tkTo, et);
         if (from < to) drawGFBody(n, s.li, from, to, seg.col);
       }
-      // Circle skin: round off the long-note tail with a cap matching the head,
-      // so a held note reads as a rounded pill end-to-end (head cap is drawn in
-      // Pass 2). Normal notes only — wide LNs keep their existing shape.
-      if (getNoteSkin() === 'circle') {
-        const ety = tk2y(et);
-        if (ety > gy - 20 && ety < gy + gh + 20) {
-          const tp = gNX(et, n, s.li, true);
-          const trx = tp.x + tp.w * .05;
-          const trw = tp.w - tp.w * .05 * 2;
-          const tcx = trx + trw / 2;
-          const trad = trw / 2;
-          ctx.fillStyle = s.bodyCol;
-          ctx.beginPath();
-          ctx.arc(tcx, ety, trad, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
     }
     ctx.globalAlpha = 1;
   }
@@ -258,7 +243,7 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
       if (hy > gy - 20 && hy < gy + gh + 20) {
         const effectiveOv = s.isMissed ? null : s.ov;
         const hc = headColorAtTick(drawHead, effectiveOv, n.startTick);
-        const th = CTX.nThk * (n.isWide ? 1 : .9);
+        const th = ES.nThk * (n.isWide ? 1 : .9);
         const rx0 = n.isWide ? Math.min(hp.x, hp.x + hp.w) : hp.x + hp.w * .05;
         const rw  = n.isWide ? Math.abs(hp.w)              : hp.w - hp.w * .05 * 2;
         drawNoteHead(ctx, n.isWide, rx0, hy, rw, th, hc, 4);
@@ -273,7 +258,7 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
       }
     } else {
       const y = tk2y(n.startTick); if (y < gy - 20 || y > gy + gh + 20) { ctx.globalAlpha = 1; continue; }
-      const th = CTX.nThk * (n.isWide ? 1 : .9);
+      const th = ES.nThk * (n.isWide ? 1 : .9);
       let rx0, rw;
       if (n.isWide && isStepTick(n.startTick)) {
         const stk = n.startTick;
@@ -301,66 +286,29 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     ctx.globalAlpha = 1;
   }
 
-  // Sudden / Hidden lane covers. Mask part of the visible field with a gradient
-  // so notes appear later (Sudden, from the top) or vanish before the line
-  // (Hidden, from the bottom). Drawn over notes but BEFORE the judgment line so
-  // the line stays visible. Cover fractions are % of the field height (gy..jY).
-  const sud = Math.max(0, Math.min(95, opts.sudden || 0)) / 100;
-  const hid = Math.max(0, Math.min(95, opts.hidden || 0)) / 100;
-  if (sud > 0) {
-    const h = (jY - gy) * sud;
-    const g = ctx.createLinearGradient(0, gy, 0, gy + h);
-    g.addColorStop(0, 'rgba(8,8,13,1)');
-    g.addColorStop(0.82, 'rgba(8,8,13,1)');
-    g.addColorStop(1, 'rgba(8,8,13,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(gx, gy, gw, h);
-  }
-  if (hid > 0) {
-    const h = (jY - gy) * hid;
-    const g = ctx.createLinearGradient(0, jY - h, 0, jY);
-    g.addColorStop(0, 'rgba(8,8,13,0)');
-    g.addColorStop(0.18, 'rgba(8,8,13,1)');
-    g.addColorStop(1, 'rgba(8,8,13,1)');
-    ctx.fillStyle = g;
-    ctx.fillRect(gx, jY - h, gw, h);
-  }
+  // Judgment line — doubles as the life-gauge bar during a live session.
+  // opts.gauge = {value: 0..100, type: 'normal'|'hard'} when playing; absent
+  // in editor/idle previews, where we draw the plain white line instead.
   if (opts.gauge) {
     const frac = Math.max(0, Math.min(1, opts.gauge.value / 100));
-    // Gauge tint: Hard is always red. Normal is green below the clear threshold
-    // and switches to the clear color (sky) the instant it reaches it, giving
-    // the player a clear visual "clear secured" signal as required.
-    let fill;
-    if (opts.gauge.color) {
-      fill = opts.gauge.color;
-    } else if (opts.gauge.type === 'hard') {
-      fill = '#ff4a5a';
-    } else {
-      fill = opts.gauge.value >= NORMAL_CLEAR_PCT ? '#7ad4ff' : '#4aff8a';
-    }
-    // Unfilled track (faint) IS the judgment line at full 6px weight; the
-    // filled portion overlays it left→right. No separate white baseline — that
-    // would cover the gauge color. The track + fill together read as one solid
-    // 6px line, matching the preview bar below.
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    // Gauge tint by type (shared palette): Normal green, Hard red.
+    const fill = opts.gauge.color || (opts.gauge.type === 'hard' ? '#ff4a5a' : '#4aff8a');
+    // Unfilled track (faint), then the filled portion left→right.
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
     ctx.fillRect(gx, jY - 3, gw, 6);
     ctx.fillStyle = fill;
     ctx.fillRect(gx, jY - 3, gw * frac, 6);
-    // Bright leading edge marks the current gauge fill boundary.
-    if (frac > 0 && frac < 1) {
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(gx + gw * frac - 1, jY - 3, 2, 6);
-    }
+    // Bright leading edge + thin baseline so the judgment position stays legible.
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(gx, jY); ctx.lineTo(gx + gw, jY); ctx.stroke();
     const glow = ctx.createLinearGradient(0, jY - 6, 0, jY + 6);
     glow.addColorStop(0, 'rgba(255,255,255,0)');
     glow.addColorStop(0.5, fill + '55');
     glow.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = glow; ctx.fillRect(gx, jY - 6, gw * frac, 12);
   } else {
-    // Preview/idle: same 6px weight as the gauge bar so the judgment line never
-    // changes thickness between preview and play.
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(gx, jY - 3, gw, 6);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(gx, jY); ctx.lineTo(gx + gw, jY); ctx.stroke();
     const gr = ctx.createLinearGradient(0, jY - 6, 0, jY + 6);
     gr.addColorStop(0, 'rgba(255,255,255,0)');
     gr.addColorStop(0.5, 'rgba(255,255,255,0.12)');
@@ -414,7 +362,7 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
       cx = lx + ((cum2 + cum3end) / 2) * sw;
       baseR = Math.abs(sw) * (1.25 / 8);
     } else {
-      const li = CHL[h.channel];
+      const li = CHL[(PS.lineMap && PS.lineMap[h.channel]) || h.channel];
       let cum = 0;
       for (let k = 0; k < li; k++) cum += lines[k] / 100;
       const lineW = (lines[li] / 100) * sw;

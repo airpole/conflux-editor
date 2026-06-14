@@ -3,7 +3,7 @@
 // ============================================================
 import { $, LEAD_IN_MS } from './constants.js';
 import { D } from './state.js';
-import { CTX } from './play-context.js';
+import { ES } from './editor-state.js';
 import { PS } from './play-state.js';
 import { AS } from './audio-state.js';
 import { fmtMs } from './utility.js';
@@ -39,7 +39,7 @@ function playLoop(ts) {
   if (curMs >= 0) {
     if (PS.playAutoplay) {
       // Pre-schedule hitsounds 150ms ahead
-      if (PS.playAudioStarted && AS.actx && AS.hitBuf && CTX.hitVol > 0) {
+      if (PS.playAudioStarted && AS.actx && AS.hitBuf && ES.hitVol > 0) {
         scheduleHitsounds(curMs, 150, AS.actx, playHitAt);
       }
       autoJudge(
@@ -84,9 +84,9 @@ function playLoop(ts) {
     drawPlayScreen(cv, curMs);
   }
   // Sync windowed playbar (skip while user is dragging the thumb)
-  if (!PS.playFullscreen && CTX.totalMs > 0 && PS.seekDragMs == null) {
+  if (!PS.playFullscreen && ES.totalMs > 0 && PS.seekDragMs == null) {
     if (dom.seek) {
-      const newVal = Math.max(0, Math.min(1000, Math.round((curMs / CTX.totalMs) * 1000)));
+      const newVal = Math.max(0, Math.min(1000, Math.round((curMs / ES.totalMs) * 1000)));
       if (+dom.seek.value !== newVal) dom.seek.value = newVal;
     }
     if (dom.time) {
@@ -95,7 +95,7 @@ function playLoop(ts) {
     }
   }
   // ── Natural song end ─────────────────────────────────────────
-  if (curMs > (CTX.totalMs || 0) + 2000) {
+  if (curMs > (ES.totalMs || 0) + 2000) {
     // In manual play, evaluate clear/fail and produce a result before stopping.
     if (!PS.playAutoplay) finalizePlay(/*forceEnded=*/false);
     else stopPlay();
@@ -151,6 +151,32 @@ export function startPlay(fromBeginning, autoplay) {
   _startPlayImpl(fromBeginning, autoplay);
 }
 
+/**
+ * Phase 6 — Mirror / Random. Build PS.lineMap (1..4 permutation) and
+ * PS.mirrorShape for this session from PS.optMirror / PS.optRandom.
+ *   - Mirror:  lines swap 1<->4, 2<->3, shape mirrored on render, input mirrored.
+ *   - Random:  normal-note lines shuffled (Fisher-Yates), shape untouched.
+ *   - Both:    Random wins the line map (shuffle), shape still mirrored.
+ * Wide notes ignore the line map (always span the full shape).
+ */
+function buildLineMap() {
+  if (PS.optRandom) {
+    const lines = [1, 2, 3, 4];
+    for (let i = lines.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [lines[i], lines[j]] = [lines[j], lines[i]];
+    }
+    PS.lineMap = {1: lines[0], 2: lines[1], 3: lines[2], 4: lines[3]};
+    PS.mirrorShape = !!PS.optMirror;   // Random + Mirror → shuffle + mirror shape
+  } else if (PS.optMirror) {
+    PS.lineMap = {1: 4, 2: 3, 3: 2, 4: 1};
+    PS.mirrorShape = true;
+  } else {
+    PS.lineMap = {1: 1, 2: 2, 3: 3, 4: 4};
+    PS.mirrorShape = false;
+  }
+}
+
 function _startPlayImpl(fromBeginning, autoplay) {
   // Phase: re-read the Auto checkbox at session start. The change-event
   // handler in main.js writes PS.playAutoplay, but on the very first toggle
@@ -161,7 +187,7 @@ function _startPlayImpl(fromBeginning, autoplay) {
   const autoChkEl = $('playAutoChk');
   if (autoChkEl) PS.playAutoplay = !!autoChkEl.checked;
 
-  const offMs = fromBeginning ? -LEAD_IN_MS : CTX.sharedMs;
+  const offMs = fromBeginning ? -LEAD_IN_MS : ES.sharedMs;
   PS.playOffMs = offMs;
   PS.playActive = true;
   PS.playStartedFromBeginning = !!fromBeginning;
@@ -178,6 +204,9 @@ function _startPlayImpl(fromBeginning, autoplay) {
   PS.playHitMap.clear(); PS.playMissSet.clear(); PS.playEffects = [];
   PS.playCombo = 0; PS.playMaxCombo = 0; PS.playJudgQueue = [];
   PS.playHoldState = {}; PS.playKeyHeld.clear();
+
+  // Mirror / Random: compute the line map + shape-mirror flag for this session.
+  buildLineMap();
 
   // Gauge / clear-mark lock + Fast-Slow counters reset for the new session.
   resetGauge();
@@ -213,7 +242,7 @@ export function stopPlay() {
   // Snapshot current play position so the next ▶ resumes from there.
   const curMs = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate;
   if (isFinite(curMs) && curMs > 0) {
-    CTX.sharedMs = Math.min(curMs, CTX.totalMs || curMs);
+    ES.sharedMs = Math.min(curMs, ES.totalMs || curMs);
   }
   PS.playActive = false;
   cancelAnimationFrame(PS.playRAF); PS.playRAF = null;
@@ -244,17 +273,19 @@ export function stopPlay() {
     toast(`SYNC:${sC} PERFECT:${pC} GOOD:${gC} MISS:${PS.playMissSet.size} | ${acc.toFixed(1)}% | Combo:${PS.playMaxCombo}`);
   }
 
-  if (CTX.totalMs > 0) {
+  if (ES.totalMs > 0) {
     const seek = $('playSeek');
-    if (seek) seek.value = Math.max(0, Math.min(1000, Math.round((CTX.sharedMs / CTX.totalMs) * 1000)));
+    if (seek) seek.value = Math.max(0, Math.min(1000, Math.round((ES.sharedMs / ES.totalMs) * 1000)));
   }
   const tm = $('playTime');
-  if (tm) tm.textContent = fmtMs(Math.max(0, CTX.sharedMs));
+  if (tm) tm.textContent = fmtMs(Math.max(0, ES.sharedMs));
 
-  // Idle repaint is host-specific: the editor only redraws while the Play tab
-  // is active (and must resize the active canvas first); the game redraws its
-  // own idle frame. Both behaviours live in the host's CTX.redrawIdle().
-  requestAnimationFrame(() => { CTX.redrawIdle(); });
+  requestAnimationFrame(() => {
+    if (ES.activeTab === 'play') {
+      rszActiveCanvas();
+      import('./play-render.js').then(m => m.drawPlayIdle());
+    }
+  });
 }
 
 // ── Play tab inline controls ─────────────────────────────
@@ -269,21 +300,21 @@ export function playRestart() {
 }
 
 export function playSeekPreview(v) {
-  if (!CTX.totalMs) return;
-  const ms = (v / 1000) * CTX.totalMs;
+  if (!ES.totalMs) return;
+  const ms = (v / 1000) * ES.totalMs;
   PS.seekDragMs = ms;
   const tm = $('playTime'); if (tm) tm.textContent = fmtMs(ms);
   if (!PS.playActive) {
-    CTX.sharedMs = ms;
+    ES.sharedMs = ms;
     import('./play-render.js').then(m => m.drawPlayIdle());
   }
 }
 
 export function playSeekTo(v) {
   PS.seekDragMs = null;
-  if (!CTX.totalMs) return;
-  const ms = (v / 1000) * CTX.totalMs;
-  CTX.sharedMs = ms;
+  if (!ES.totalMs) return;
+  const ms = (v / 1000) * ES.totalMs;
+  ES.sharedMs = ms;
   $('playTime').textContent = fmtMs(ms);
   if (!PS.playActive) {
     import('./play-render.js').then(m => m.drawPlayIdle());
@@ -296,11 +327,6 @@ export function playSeekTo(v) {
   PS.playHitMap.clear(); PS.playMissSet.clear(); PS.playEffects = [];
   PS.playCombo = 0; PS.playMaxCombo = 0; PS.playJudgQueue = [];
   PS.playHoldState = {}; PS.playKeyHeld.clear();
-  // Rebuild the run as if the intro up to `ms` was auto-played perfectly:
-  // reset the gauge to its start value, then seed re-applies every passed
-  // note's SYNC delta. Without the reset the gauge would keep its pre-seek
-  // value and double-count, diverging from a from-the-top play.
-  resetGauge();
   seedPlayStateFromCurMs(ms);
   resetMissChecker(ms);
   resetHitScheduler(ms);

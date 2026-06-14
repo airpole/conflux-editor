@@ -42,6 +42,18 @@ export const PS = {
   playHoldState: {},
   playKeyHeld: new Set(),
 
+  // ── Mirror / Random lane modifiers (Phase 6) ─────────────────
+  // lineMap maps an original note line (1..4) to the line it is displayed
+  // and judged on. Identity by default. Built once at session start by
+  // buildLineMap() from optMirror/optRandom; render & judgment only look it up.
+  // mirrorShape flips the shape horizontally (render-only). Random does NOT
+  // mirror the shape; combining both mirrors the shape AND shuffles lines
+  // (Random wins the line map). Options are set from Settings before start.
+  lineMap: {1:1, 2:2, 3:3, 4:4},
+  mirrorShape: false,
+  optMirror: false,
+  optRandom: false,
+
   playRAF: null,
   seekDragMs: null,
 
@@ -75,9 +87,6 @@ export const PS = {
   fastCount: 0,
   slowCount: 0,
   showFastSlow: true,      // Settings toggle
-  visualOffset: 0,         // ms; subtracted from input time (note/judge timing)
-  sudden: 0,               // lane cover from top, 0..100 (% of field height)
-  hidden: 0,               // lane cover from bottom, 0..100 (% of field height)
 };
 
 /** Rebuild PS.codeToChannel from PS.keyBindings. Called on key bind change. */
