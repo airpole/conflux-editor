@@ -154,6 +154,13 @@ export function applySettings(deps) {
     d.PS.staticShape = s.staticShape;
   }
 
+  // Mirror/Static change the play-field mapping. buildLineMap() (injected via
+  // deps to avoid a settings→play import cycle) rebuilds PS.lineMap/mirrorShape
+  // so a toggle takes effect immediately — not only at the next session start.
+  // redrawIdle repaints the Play idle preview so the change is visible at once.
+  if (d.buildLineMap) d.buildLineMap();
+  if (d.redrawIdle) d.redrawIdle();
+
   // Audio offset shifts the music start; stored where the audio start path reads
   // it. Kept separate from visualOffset so the two latencies tune independently.
   if (d.setAudioOffset) d.setAudioOffset(s.audioOffset);

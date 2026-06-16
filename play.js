@@ -157,7 +157,7 @@ export function startPlay(fromBeginning, autoplay) {
  * shape on render, and mirrors input. Wide notes ignore the line map (they
  * always span the full shape). Random was removed — see play-state.js.
  */
-function buildLineMap() {
+export function buildLineMap() {
   if (PS.optMirror) {
     PS.lineMap = {1: 4, 2: 3, 3: 2, 4: 1};
     PS.mirrorShape = true;

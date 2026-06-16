@@ -11,7 +11,7 @@ export function toggleSFollow() { ES.sFollow = !ES.sFollow; $('sFollowBtn').clas
 export function toggleMirror() {
   ES.sMirror = !ES.sMirror;
   $('sMirrorBtn').classList.toggle('on', ES.sMirror);
-  toast(ES.sMirror ? 'Mirror ON' : 'Mirror OFF');
+  toast(ES.sMirror ? 'Symmetry ON' : 'Symmetry OFF');
 }
 
 export function cyclePosSnap() {

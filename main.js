@@ -38,7 +38,7 @@ import { syncMeta, addTempo, editTempo, delTempo,
          addTimeSig, editTS, delTS, renderTempoList, renderTSList,
          _afterAnyCommand } from './meta-ui.js';
 import { onDispatch } from './commands.js';
-import { playToggle, playRestart, playSeekTo, playSeekPreview } from './play.js';
+import { playToggle, playRestart, playSeekTo, playSeekPreview, buildLineMap } from './play.js';
 import { togglePlayFullscreen, drawPlayIdle } from './play-render.js';
 import { setPlayContext, makeEditorContext } from './play-context.js';
 import { registerScene, goScene, resetSceneStack } from './scene-manager.js';
@@ -213,6 +213,12 @@ window.addEventListener('DOMContentLoaded', () => {
     setNoteSkin,
     audio: { setVolumes },
     setAudioOffset,
+    buildLineMap,
+    // Repaint the Play idle preview when an option (mirror/static) changes so
+    // the new lane layout shows immediately. Only when idle on the Play tab.
+    redrawIdle() {
+      if (ES.activeTab === 'play' && !PS.playActive) { rszActiveCanvas(); drawPlayIdle(); }
+    },
     openKeyConfig() { toast('키 설정은 에디터 Meta 탭에서 (추후 이동 예정)'); },
   };
   applySettings(settingsDeps);

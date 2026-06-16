@@ -57,8 +57,11 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   // Filled shape body + outer boundary strokes (normalized chains)
   drawShapeBoundary(ctx, lP, rP, STYLE_GAME);
 
-  // Step horizontal connectors (normalized: separate prs<cls / crs<pls cases)
-  drawStepConnectors(ctx, stepTicks, tk2y, p2x, STYLE_GAME_STEP, 'normalized',
+  // Step horizontal connectors (normalized: separate prs<cls / crs<pls cases).
+  // Static Shape has no boundary jumps (geometry is frozen to init), so there
+  // are no steps to connect — passing an empty list avoids drawing the stray
+  // horizontal stubs that getShape(stk±ε) would otherwise produce.
+  drawStepConnectors(ctx, _static ? [] : stepTicks, tk2y, p2x, STYLE_GAME_STEP, 'normalized',
                      { topY: gy, botY: gy + gh });
 
   // Wide note LN bodies
