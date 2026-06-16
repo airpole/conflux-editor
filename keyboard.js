@@ -16,7 +16,8 @@ import { renderKeyCfg, startKeyConfig, assignKeyConfig } from './key-config.js';
 import { handlePlayKeyDown, handlePlayKeyUp } from './play-input.js';
 import { toggleEdPlay } from './edit-playback.js';
 import { playToggle, playRestart, stopPlay } from './play.js';
-import { setGauge, setLockTarget, setLockMode, toggleFastSlow } from './play-options.js';
+import { togglePlayMirror, toggleFastSlow } from './play-options.js';
+import { getSetting } from './settings.js';
 import { fmSave, fmSaveAs, showMod, renderFMList } from './file-manager.js';
 import { doExport } from './import-export.js';
 import { goTab } from './tab-nav.js';
@@ -172,21 +173,9 @@ document.addEventListener('keydown', (e) => {
       playRestart();
       return;
     }
-    if (key === 'g') {                  // G = gauge Normal ↔ Hard
-      setGauge(PS.gaugeType === 'normal' ? 'hard' : 'normal');
-      toast(`게이지: ${PS.gaugeType === 'hard' ? 'Hard' : 'Normal'}`);
-      return;
-    }
-    if (key === 'l') {                  // L = lock target None→FC→AP→AS
-      const cyc = ['none', 'fc', 'ap', 'as'];
-      const next = cyc[(cyc.indexOf(PS.lockTarget) + 1) % cyc.length];
-      setLockTarget(next);
-      toast(`잠금 목표: ${next.toUpperCase()}`);
-      return;
-    }
-    if (key === 'm') {                  // M = lock mode Term ↔ Casc
-      setLockMode(PS.lockMode === 'terminate' ? 'cascade' : 'terminate');
-      toast(`잠금 모드: ${PS.lockMode === 'cascade' ? 'Cascade' : 'Terminate'}`);
+    if (key === 'm') {                  // M = Mirror toggle (lane mirror)
+      togglePlayMirror();
+      toast(`Mirror: ${getSetting('mirror') ? 'ON' : 'OFF'}`);
       return;
     }
     if (key === 'f') {                  // F = Fast/Slow display toggle

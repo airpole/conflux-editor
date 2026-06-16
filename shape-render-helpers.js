@@ -32,15 +32,20 @@ export function normalizeShape(sh) {
  *
  * Returns a `getTkInfo(tk)` function bound to a fresh Map.
  */
-export function makeTkInfoCache(mode) {
+export function makeTkInfoCache(mode, shapeFn, linesFn) {
+  // shapeFn(tk)/linesFn(tk) default to getShape/getLines. Static Shape injects
+  // providers that ignore tk and return the chart's init geometry, so every
+  // tick resolves to the same frozen shape + lines.
+  const getSh = shapeFn || getShape;
+  const getLn = linesFn || getLines;
   const cache = new Map();
   if (mode === 'raw') {
     return (tk) => {
       let info = cache.get(tk);
       if (!info) {
-        const raw = getShape(tk);
+        const raw = getSh(tk);
         const shN = normalizeShape(raw);
-        info = { sh: raw, shN, lines: getLines(tk) };
+        info = { sh: raw, shN, lines: getLn(tk) };
         cache.set(tk, info);
       }
       return info;
@@ -49,8 +54,8 @@ export function makeTkInfoCache(mode) {
   return (tk) => {
     let info = cache.get(tk);
     if (!info) {
-      const sh = normalizeShape(getShape(tk));
-      info = { sh, lines: getLines(tk) };
+      const sh = normalizeShape(getSh(tk));
+      info = { sh, lines: getLn(tk) };
       cache.set(tk, info);
     }
     return info;

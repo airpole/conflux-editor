@@ -42,17 +42,23 @@ export const PS = {
   playHoldState: {},
   playKeyHeld: new Set(),
 
-  // ── Mirror / Random lane modifiers (Phase 6) ─────────────────
-  // lineMap maps an original note line (1..4) to the line it is displayed
-  // and judged on. Identity by default. Built once at session start by
-  // buildLineMap() from optMirror/optRandom; render & judgment only look it up.
-  // mirrorShape flips the shape horizontally (render-only). Random does NOT
-  // mirror the shape; combining both mirrors the shape AND shuffles lines
-  // (Random wins the line map). Options are set from Settings before start.
+  // ── Mirror lane modifier (Phase 6) ───────────────────────────
+  // lineMap maps an original note line (1..4) to the line it is displayed and
+  // judged on. Identity by default. Built once at session start by
+  // buildLineMap() from optMirror; render & judgment only look it up.
+  // mirrorShape flips the shape horizontally (render-only).
+  // Random (line shuffle) was removed: lines 1/4 take one key and lines 2/3
+  // take two keys, so shuffling produces physically unplayable patterns. Mirror
+  // swaps 1<->4 / 2<->3, preserving that key structure.
   lineMap: {1:1, 2:2, 3:3, 4:4},
   mirrorShape: false,
   optMirror: false,
-  optRandom: false,
+
+  // ── Static Shape modifier (note practice, render-only) ───────
+  // When true, game-render freezes the playfield to the chart's init geometry
+  // (first shape/line values) for the whole song. Judgment/data untouched.
+  // Set from Settings before a session; listed in the no-record option set.
+  staticShape: false,
 
   playRAF: null,
   seekDragMs: null,

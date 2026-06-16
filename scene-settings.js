@@ -187,7 +187,7 @@ function tabOption(s) {
     <div class="st-note">아래 옵션을 켜면 플레이 기록(점수)이 저장되지 않습니다.</div>
     ${rowToggle('cmod', 'Constant (CMOD)', '등속 — BPM 변화 무시, 일정 속도', s.cmod, {disabled:true, soon:true})}
     ${rowToggle('autoplay', 'Autoplay', '자동 플레이', s.autoplay)}
-    ${rowToggle('staticShape', 'Static Shape', 'Shape 고정 (-2/+2), 노트 연습', s.staticShape, {disabled:true, soon:true})}
+    ${rowToggle('staticShape', 'Static Shape', 'Shape·라인을 시작값으로 고정 (노트 연습)', s.staticShape)}
     ${rowToggle('noFail', 'No Fail', '게이지 0이어도 안 죽음', s.noFail)}
   `;
 }

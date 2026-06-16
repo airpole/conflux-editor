@@ -152,23 +152,13 @@ export function startPlay(fromBeginning, autoplay) {
 }
 
 /**
- * Phase 6 — Mirror / Random. Build PS.lineMap (1..4 permutation) and
- * PS.mirrorShape for this session from PS.optMirror / PS.optRandom.
- *   - Mirror:  lines swap 1<->4, 2<->3, shape mirrored on render, input mirrored.
- *   - Random:  normal-note lines shuffled (Fisher-Yates), shape untouched.
- *   - Both:    Random wins the line map (shuffle), shape still mirrored.
- * Wide notes ignore the line map (always span the full shape).
+ * Phase 6 — Mirror. Build PS.lineMap (1..4) and PS.mirrorShape for this
+ * session from PS.optMirror. Mirror swaps lines 1<->4 and 2<->3, mirrors the
+ * shape on render, and mirrors input. Wide notes ignore the line map (they
+ * always span the full shape). Random was removed — see play-state.js.
  */
 function buildLineMap() {
-  if (PS.optRandom) {
-    const lines = [1, 2, 3, 4];
-    for (let i = lines.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [lines[i], lines[j]] = [lines[j], lines[i]];
-    }
-    PS.lineMap = {1: lines[0], 2: lines[1], 3: lines[2], 4: lines[3]};
-    PS.mirrorShape = !!PS.optMirror;   // Random + Mirror → shuffle + mirror shape
-  } else if (PS.optMirror) {
+  if (PS.optMirror) {
     PS.lineMap = {1: 4, 2: 3, 3: 2, 4: 1};
     PS.mirrorShape = true;
   } else {
@@ -205,7 +195,7 @@ function _startPlayImpl(fromBeginning, autoplay) {
   PS.playCombo = 0; PS.playMaxCombo = 0; PS.playJudgQueue = [];
   PS.playHoldState = {}; PS.playKeyHeld.clear();
 
-  // Mirror / Random: compute the line map + shape-mirror flag for this session.
+  // Mirror: compute the line map + shape-mirror flag for this session.
   buildLineMap();
 
   // Gauge / clear-mark lock + Fast-Slow counters reset for the new session.

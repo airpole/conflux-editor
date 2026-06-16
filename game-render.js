@@ -18,7 +18,7 @@ import { D } from './state.js';
 import { PS } from './play-state.js';
 import { ES } from './editor-state.js';
 import { ms2t, t2ms, getSortedTS } from './timing.js';
-import { sp2f, getShape, getLines, buildShapePointArrays,
+import { sp2f, getShape, getLines, getShapeInit, getLinesInit, buildShapePointArrays,
          getStepTicks, getShapeEventTicks,
          countShapeEventsInRange, isStepTick } from './shape.js';
 import { computeNoteOverlaps, classifyNotesForZOrder } from './overlaps.js';
@@ -38,14 +38,21 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   const p2x = p => _mir ? gx + (1 - sp2f(p)) * gw : gx + sp2f(p) * gw;
   const tk2y = tk => { const ms_ = t2ms(tk); return jY - ((ms_ - curMs) / visMs) * (jY - gy); };
 
+  // Static Shape (note-practice): freeze playfield geometry to the chart's init
+  // values for the whole song. Render-only — judgment/data untouched. When off,
+  // these resolve to the normal tick-evaluated getShape/getLines.
+  const _static = PS.staticShape;
+  const _shapeFn = _static ? () => getShapeInit() : getShape;
+  const _linesFn = _static ? () => getLinesInit() : getLines;
+
   // Frame-scoped {sh, lines} cache (normalized: raw left/right swapped to min/max).
-  const getTkInfo = makeTkInfoCache('normalized');
+  const getTkInfo = makeTkInfoCache('normalized', _shapeFn, _linesFn);
 
   const botTk = ms2t(botMs), topTk = ms2t(topMs);
   const pvEvtDensity = countShapeEventsInRange(botTk, topTk);
   const steps = Math.min(500, Math.max(120, pvEvtDensity * 8));
 
-  const {lP, rP, stepTicks} = buildShapePointArrays(botTk, topTk, steps, tk2y, p2x);
+  const {lP, rP, stepTicks} = buildShapePointArrays(botTk, topTk, steps, tk2y, p2x, _shapeFn);
 
   // Filled shape body + outer boundary strokes (normalized chains)
   drawShapeBoundary(ctx, lP, rP, STYLE_GAME);
@@ -262,7 +269,7 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
       let rx0, rw;
       if (n.isWide && isStepTick(n.startTick)) {
         const stk = n.startTick;
-        const rawB = getShape(stk - 0.0001), rawA = getShape(stk + 0.0001);
+        const rawB = _shapeFn(stk - 0.0001), rawA = _shapeFn(stk + 0.0001);
         const shB = rawB.left <= rawB.right ? rawB : {left: rawB.right, right: rawB.left};
         const shA = rawA.left <= rawA.right ? rawA : {left: rawA.right, right: rawA.left};
         const lo = Math.min(shB.left, shA.left);
@@ -347,7 +354,7 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     const isLNFading = h.note.duration > 0 && curMs >= h.endMs;
 
     let evalTk = curTk;
-    const sh = getShape(evalTk), lines = getLines(evalTk);
+    const sh = _shapeFn(evalTk), lines = _linesFn(evalTk);
     const lx = p2x(sh.left), rx = p2x(sh.right), sw = rx - lx;
     const fadeAge = isLNFading ? curMs - h.endMs : age;
 
@@ -417,8 +424,8 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   // Text events overlay
   {
     const fadeMs = 300;
-    const shCur = getShape(curTk);
-    const linesCur = getLines(curTk);
+    const shCur = _shapeFn(curTk);
+    const linesCur = _linesFn(curTk);
     const sLx = p2x(shCur.left), sRx = p2x(shCur.right), sSw = sRx - sLx;
 
     const colPad = gw * 0.02;

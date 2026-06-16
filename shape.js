@@ -136,7 +136,10 @@ export function countShapeEventsInRange(startTk, endTk) {
 }
 
 // Build step-aware lP/rP for shape boundary rendering (90-degree corners at Step ticks)
-export function buildShapePointArrays(botTk, topTk, steps, tk2y, p2x) {
+export function buildShapePointArrays(botTk, topTk, steps, tk2y, p2x, shapeFn) {
+  // shapeFn(tk) → {left,right}; defaults to getShape. Static Shape passes a
+  // provider that ignores tk and returns the chart's init geometry.
+  const getSh = shapeFn || getShape;
   const stSz = (topTk - botTk) / steps;
   const stepTicks = getStepTicks(botTk - 1, topTk + 1);
   const allEvtTicks = getShapeEventTicks(botTk - 1, topTk + 1);
@@ -166,7 +169,7 @@ export function buildShapePointArrays(botTk, topTk, steps, tk2y, p2x) {
   const lP = [], rP = [];
   for (const tk of ticks) {
     const y = tk2y(tk);
-    const sh = getShape(tk);
+    const sh = getSh(tk);
     lP.push({x: p2x(sh.left),  y, pos: sh.left,  tk});
     rP.push({x: p2x(sh.right), y, pos: sh.right, tk});
   }
@@ -248,3 +251,23 @@ export function getLines(tick) {
 
 /** Shape position: internal unit → fractional (0..1) */
 export function sp2f(p) { return p / 64; }
+
+// ============================================================
+//  STATIC SHAPE (note-practice modifier) — render-only
+// ============================================================
+// Init {left,right} / line values (the chart's opening geometry), used when
+// the Static Shape option is on so gameplay freezes the playfield to its
+// opening shape + lines for the whole song. Same cached values getShape/
+// getLines fall back to, so they stay consistent with the editor.
+
+/** Init {left, right} from the shape chains cache (defaults 32/40). */
+export function getShapeInit() {
+  const c = get('shapeChains');
+  return { left: c.leftInit, right: c.rightInit };
+}
+
+/** Init 4-line positions from the first line event (defaults [25,25,25,25]). */
+export function getLinesInit() {
+  const evts = get('lineEventsSorted');
+  return evts.length ? evts[0].lines.slice() : [25, 25, 25, 25];
+}

@@ -151,6 +151,7 @@ export function applySettings(deps) {
     d.PS.sudden = s.sudden;
     d.PS.hidden = s.hidden;
     d.PS.optMirror = s.mirror;
+    d.PS.staticShape = s.staticShape;
   }
 
   // Audio offset shifts the music start; stored where the audio start path reads
