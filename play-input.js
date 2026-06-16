@@ -1,7 +1,7 @@
 // ============================================================
 //  PLAY-INPUT — keyboard handlers + pause click on game canvas
 // ============================================================
-import { JUDGE_GOOD } from './constants.js';
+import { JUDGE_GOOD, LN_RELEASE_GRACE_MS, KEY2LINE } from './constants.js';
 import { PS } from './play-state.js';
 import { AS } from './audio-state.js';
 import { t2ms } from './timing.js';
@@ -24,11 +24,21 @@ export function handlePlayKeyDown(code) {
       PS.playHoldState[ch] = result.note;
     }
   } else if (!PS.playHoldState[ch]) {
-    // Wide hold transfer: share with another key currently holding a wide note
+    // Crossed-binding recovery on a press that judged nothing. On a 2-key lane
+    // the tap-intended finger can land first and grab the LN head, leaving the
+    // real holding finger with no note. When that real finger presses (no fresh
+    // judgment), inherit an in-progress hold so the LN can complete on its lift:
+    //   • a WIDE hold transfers to ANY other key (wide accepts any key), and
+    //   • a NORMAL LN hold transfers to a key on the SAME line (a normal LN can
+    //     only be sustained by its own lane's keys).
+    // Without this, the wrong-bound finger lifting mid-hold drops the LN to a
+    // mid-release MISS even though a finger is still holding the lane.
+    const myLine = KEY2LINE[ch];
     for (const [otherCh, note] of Object.entries(PS.playHoldState)) {
-      if (note.isWide && +otherCh !== ch) {
-        PS.playHoldState[ch] = note;
-        break;
+      if (+otherCh === ch) continue;
+      if (note.isWide) { PS.playHoldState[ch] = note; break; }
+      if (note.duration > 0 && KEY2LINE[+otherCh] === myLine) {
+        PS.playHoldState[ch] = note; break;
       }
     }
   }
@@ -42,20 +52,29 @@ export function handlePlayKeyUp(code) {
   if (PS.playHoldState[ch]) {
     const note = PS.playHoldState[ch];
     delete PS.playHoldState[ch];
-    // Wide hold: try to transfer to any other held key
+    // Hold transfer on release: if another finger is still holding the lane,
+    // hand the LN off so it survives this lift (crossed-binding self-heal).
+    //   • WIDE → any other held key.
+    //   • NORMAL LN → a held key on the SAME line only.
     if (note.isWide) {
       for (const heldCh of PS.playKeyHeld) {
-        if (!PS.playHoldState[heldCh]) {
-          PS.playHoldState[heldCh] = note;
-          return;
+        if (!PS.playHoldState[heldCh]) { PS.playHoldState[heldCh] = note; return; }
+      }
+    } else if (note.duration > 0) {
+      const noteLine = KEY2LINE[ch];
+      for (const heldCh of PS.playKeyHeld) {
+        if (!PS.playHoldState[heldCh] && KEY2LINE[heldCh] === noteLine) {
+          PS.playHoldState[heldCh] = note; return;
         }
       }
     }
-    // Phase 6 D2: classify mid-release vs tail success based on timing.
-    // Same sync-offset correction as keypress so tail timing matches.
+    // Classify mid-release vs tail success. A small release grace window
+    // (LN_RELEASE_GRACE_MS) counts a lift just before the tail as a success —
+    // human lift timing is imprecise and an early-by-a-hair release shouldn't
+    // be punished as a mid-release MISS. Same sync-offset correction as press.
     const curMs = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate - (PS.visualOffset || 0);
     const tailMs = t2ms(note.startTick + note.duration);
-    if (curMs < tailMs - JUDGE_GOOD) {
+    if (curMs < tailMs - JUDGE_GOOD - LN_RELEASE_GRACE_MS) {
       applyMidRelease(note, curMs);
     } else {
       applyTailSuccess(note, curMs);

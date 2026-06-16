@@ -12,21 +12,40 @@ import { gaugeOnJudgment, feedFastSlow } from './gauge.js';
 export function getPlayJudgment(channel, curMs) {
   // channel = physical key 1-6; map to line for normal note matching
   const line = KEY2LINE[channel];
-  let best = null, bestDiff = Infinity;
+  // Two separate candidate searches, because normal and wide notes compete
+  // differently for a key press:
+  //   • A NORMAL note can ONLY be hit by its own lane's key.
+  //   • A WIDE note accepts ANY key.
+  // So when a wide and a normal coincide, the lane key must take the normal
+  // (its only possible hitter) and let some other key satisfy the wide. Judging
+  // them in one pool lets the wide get picked first and orphan the normal into a
+  // MISS — the "input eaten" bug on wide+normal chords.
+  //
+  // Within each class we pick the EARLIEST note in window (smallest startTick),
+  // not the absolute-nearest, so a slightly-early input can't skip an older
+  // un-hit note and steal a closer later one.
+  let bestNormal = null, bestNormalTick = Infinity;
+  let bestWide = null, bestWideTick = Infinity;
   for (const n of D.notes) {
-    if (n.isWide) {
-      // accept any key
-    } else {
-      // Phase 6: match against the note's mapped line (Mirror/Random).
-      if ((PS.lineMap[n.channel] || n.channel) !== line) continue;
-    }
     if (PS.playHitMap.has(n) || PS.playMissSet.has(n)) continue;
-    const diff = curMs - t2ms(n.startTick);
-    const window = n.isWide ? JUDGE_WIDE_SYNC : JUDGE_GOOD;
-    if (Math.abs(diff) <= window && Math.abs(diff) < bestDiff) {
-      best = n; bestDiff = Math.abs(diff);
+    const diff = Math.abs(curMs - t2ms(n.startTick));
+    if (n.isWide) {
+      // A wide note already sustained by another key must not be re-judged as a
+      // fresh head hit (it would double-count combo / score).
+      if (Object.values(PS.playHoldState).includes(n)) continue;
+      if (diff <= JUDGE_WIDE_SYNC && n.startTick < bestWideTick) {
+        bestWide = n; bestWideTick = n.startTick;
+      }
+    } else {
+      // Mirror (Phase 6): match against the note's MAPPED line so the key that
+      // visually lines up with the mirrored note is the one that hits it.
+      if (((PS.lineMap && PS.lineMap[n.channel]) || n.channel) !== line) continue;
+      if (diff <= JUDGE_GOOD && n.startTick < bestNormalTick) {
+        bestNormal = n; bestNormalTick = n.startTick;
+      }
     }
   }
+  const best = bestNormal || bestWide;   // normal (lane-specific) wins ties
   return best ? {note: best, diff: curMs - t2ms(best.startTick)} : null;
 }
 
