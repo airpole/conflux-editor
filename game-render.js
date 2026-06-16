@@ -12,7 +12,7 @@
 // 2-pass z-ordered rendering, judgment line, hit-effect ripples, and
 // the text-events overlay.
 
-import { TPB, CHL, WIDE_BODY, WIDE_COLOR, OVERLAP_COLOR, OVERLAP_BODY,
+import { TPB, CHL, KEY2LINE, WIDE_BODY, WIDE_COLOR, OVERLAP_COLOR, OVERLAP_BODY,
          NORMAL_BODY, INVALID_COLOR } from './constants.js';
 import { D } from './state.js';
 import { PS } from './play-state.js';
@@ -129,7 +129,39 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     ctx.stroke();
   }
 
-  // Measure lines (TS-aware)
+  // ── Key-press beams (input visualization) ────────────────────
+  // While playing, each held key lights its lane. A key maps to a judged line
+  // (KEY2LINE); the note channels rendered on that lane are those whose
+  // lineMap[channel] === that line (identity when mirror off). We light the
+  // RENDER slot CHL[channel] so the beam sits exactly under the notes — p2x
+  // (_mir) then mirrors beam and notes together. Gated to live sessions.
+  if (opts.gauge && PS.playKeyHeld && PS.playKeyHeld.size) {
+    const beamInfo = getTkInfo(curTk);
+    const bsh = beamInfo.sh, blines = beamInfo.lines;
+    const blx = p2x(bsh.left), brx = p2x(bsh.right), bsw = brx - blx;
+    // Held keys → judged lines → render slots (CHL of the matching channels).
+    const heldLines = new Set();
+    for (const ch of PS.playKeyHeld) { const ln = KEY2LINE[ch]; if (ln) heldLines.add(ln); }
+    const slots = new Set();
+    for (let channel = 1; channel <= 4; channel++) {
+      const mapped = (PS.lineMap && PS.lineMap[channel]) || channel;
+      if (heldLines.has(mapped)) slots.add(CHL[channel]);
+    }
+    const beamTop = gy + gh * 0.30;        // beams fade in from ~1/3 down
+    for (const slot of slots) {
+      let cum = 0; for (let k = 0; k < slot; k++) cum += blines[k] / 100;
+      const x0 = blx + cum * bsw;
+      const x1 = blx + (cum + blines[slot] / 100) * bsw;
+      const lo = Math.min(x0, x1), w = Math.abs(x1 - x0);
+      const g = ctx.createLinearGradient(0, beamTop, 0, jY);
+      g.addColorStop(0, 'rgba(120,200,255,0)');
+      g.addColorStop(1, 'rgba(120,200,255,0.22)');
+      ctx.fillStyle = g;
+      ctx.fillRect(lo, beamTop, w, jY - beamTop);
+      ctx.fillStyle = 'rgba(150,215,255,0.40)';
+      ctx.fillRect(lo, jY - 10, w, 10);
+    }
+  }
   {
     let tsSorted = getSortedTS();
     if (!tsSorted.length) tsSorted = [{tick: 0, numerator: 4, denominator: 4}];
@@ -202,7 +234,10 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     if (ov && ov.type === 'hidden') { _gfState.set(n, null); continue; }
     const nMs = t2ms(n.startTick), neMs = t2ms(n.startTick + (n.duration || 0));
     if (nMs > topMs + 300 || neMs < botMs - 300) { _gfState.set(n, null); continue; }
-    const li = n.isWide ? 0 : CHL[(PS.lineMap && PS.lineMap[n.channel]) || n.channel];
+    // Render uses the note's own channel only. Mirror is applied by p2x (_mir),
+    // which flips the whole field horizontally — applying lineMap here too would
+    // double-flip and cancel out. lineMap is for INPUT/judgment matching only.
+    const li = n.isWide ? 0 : CHL[n.channel];
     let headCol, bodyCol;
     if (n.isWide) { headCol = WIDE_COLOR; bodyCol = WIDE_BODY; }
     else if (ov && (ov.type === 'merged' || (ov.type === 'yellow' && ov.fullYellow))) { headCol = OVERLAP_COLOR; bodyCol = OVERLAP_BODY; }
@@ -317,7 +352,13 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     glow.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = glow; ctx.fillRect(gx, jY - 6, gw * frac, 12);
   } else {
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    // Idle/editor: draw the SAME 6px-tall bar slot as the live gauge (empty
+    // track), so the judgment line keeps a consistent thickness whether stopped
+    // or playing — previously this was a thin 2px line, which looked thinner on
+    // play start. Faint track + thin white baseline for position legibility.
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(gx, jY - 3, gw, 6);
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(gx, jY); ctx.lineTo(gx + gw, jY); ctx.stroke();
     const gr = ctx.createLinearGradient(0, jY - 6, 0, jY + 6);
     gr.addColorStop(0, 'rgba(255,255,255,0)');
@@ -372,7 +413,7 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
       cx = lx + ((cum2 + cum3end) / 2) * sw;
       baseR = Math.abs(sw) * (1.25 / 8);
     } else {
-      const li = CHL[(PS.lineMap && PS.lineMap[h.channel]) || h.channel];
+      const li = CHL[h.channel];   // p2x(_mir) mirrors; no lineMap here (see note pass)
       let cum = 0;
       for (let k = 0; k < li; k++) cum += lines[k] / 100;
       const lineW = (lines[li] / 100) * sw;
