@@ -193,6 +193,11 @@ export function computeResult(forceEnded) {
     slowCount: PS.slowCount,
     cleared, failed: !!forceEnded || (!cleared && !forceEnded ? (PS.gaugeType === 'normal') : false),
     forceEnded: !!forceEnded,
+    // Record eligibility: a run may write the saved best ONLY if it was played
+    // from the beginning, never slowed below 1.0×, and not autoplay. Practice-
+    // style sessions still get a Result screen but must not touch the best.
+    recordEligible:
+      !!PS.playStartedFromBeginning && !PS.playUsedSlowRate && !PS.playAutoplay,
     options: {
       gaugeType: PS.gaugeType,
       lockTarget: PS.lockTarget,

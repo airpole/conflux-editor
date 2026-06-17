@@ -181,6 +181,9 @@ function _startPlayImpl(fromBeginning, autoplay) {
   PS.playOffMs = offMs;
   PS.playActive = true;
   PS.playStartedFromBeginning = !!fromBeginning;
+  // New session: clear the slow-rate flag. Record eligibility is recomputed at
+  // finalizePlay from (started-from-beginning && never-slowed && !autoplay).
+  PS.playUsedSlowRate = false;
   // Freeze autoplay toggle during session
   const autoChk = $('playAutoChk');
   if (autoChk) { autoChk.disabled = true; autoChk.parentElement.style.opacity = '0.5'; }

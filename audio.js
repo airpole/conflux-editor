@@ -90,6 +90,9 @@ export function setPlaybackRate(val) {
     const curMs = PS.playOffMs + (performance.now() - PS.playT0) * AS.playbackRate;
     PS.playOffMs = curMs;
     PS.playT0 = performance.now();
+    // A below-1.0× rate at any point in a live session makes the run practice
+    // (ineligible for a best-record save), matching the mid-start gate.
+    if (newRate < 1.0) PS.playUsedSlowRate = true;
   }
   AS.playbackRate = newRate;
   $('rateLbl').textContent = AS.playbackRate.toFixed(2) + 'x';

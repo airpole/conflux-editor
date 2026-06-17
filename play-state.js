@@ -27,6 +27,9 @@ export const PS = {
   playFullscreen: false,
   playStartedFromBeginning: false,
   playAutoplay: false,
+  // True if the session ever ran below 1.0× playback rate. Set by setRate while
+  // a session is active; gates record eligibility (a slowed run is practice).
+  playUsedSlowRate: false,
 
   playT0: 0,
   playOffMs: 0,
