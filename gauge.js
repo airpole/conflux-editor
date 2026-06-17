@@ -48,9 +48,10 @@ export function resetGauge() {
   PS.flashAt = 0;
 }
 
-// Gauge ceiling per type: Normal can rise to the full +200% target; Hard is a
-// 0..100 survival bar.
-function gaugeMax() { return PS.gaugeType === 'hard' ? 100 : GAUGE_NORMAL_TOTAL_GAIN; }
+// Gauge ceiling: both types cap at 100. Normal's all-good gain sums to +150%
+// (GAUGE_NORMAL_TOTAL_GAIN) but the bar stops at 100 — the surplus 50% is
+// headroom that absorbs some dropped notes without leaving the cap.
+function gaugeMax() { return 100; }
 
 function clampGauge(v) {
   return Math.max(0, Math.min(gaugeMax(), v));

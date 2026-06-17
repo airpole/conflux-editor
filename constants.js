@@ -67,7 +67,10 @@ export const JUDGE_WIDE_SYNC  = 100; // Wide notes: SYNC only, ±100ms
 // Values are in percent points applied to a 0–100 gauge. These are FIRST-PASS
 // numbers meant to be tuned after real play — keep them all in this one table.
 //
-//   Normal: clears if gauge >= NORMAL_CLEAR_PCT at song end.
+//   Normal: clears if gauge >= NORMAL_CLEAR_PCT at song end. An all-good run is
+//           worth GAUGE_NORMAL_TOTAL_GAIN (+150%) of gain but the gauge is
+//           capped/displayed at 100, so the extra 50% is headroom — you can
+//           drop some notes and still sit at 100. Clear line is 75.
 //   Hard:   starts at 100, fails the instant gauge hits 0. MISS = -5 means
 //           20 consecutive misses (20 × 5 = 100) drain a full bar, matching
 //           the "20-miss fail" intent while staying a continuous gauge.
@@ -78,18 +81,19 @@ export const GAUGE_START = { normal: 0, hard: 100 };
 export const NORMAL_CLEAR_PCT = 75;
 
 // ---- Gauge tuning (modeled on IIDX groove/survival + SDVX EF/EX) ----
-// NORMAL (groove-style): per-unit GAIN is chart-size dependent — an all-SYNC
-// run always sums to GAUGE_NORMAL_TOTAL_GAIN (+200%), like IIDX's `a` and
-// SDVX EF's "+210% if all CRITICAL". This fixes two failures of a fixed gain:
-// short charts that could NEVER reach the clear line, and long charts where
-// misses became meaningless. Losses are absolute %, so a late-chart collapse
-// (후살) still costs the same on any chart. GOOD earns half (IIDX GREAT/2).
-// LN-tail loss is 1/4 of a chip miss, following SDVX's long-note ratio.
+// NORMAL (groove-style): per-unit GAIN is chart-size dependent — an all-good
+// run sums to GAUGE_NORMAL_TOTAL_GAIN (+150%), like IIDX's `a`. The gauge is
+// CAPPED and displayed at 100, so the extra 50% of potential gain is headroom:
+// you can drop a chunk of notes and still finish at 100. This fixes two
+// failures of a fixed gain: short charts that could never reach the clear line,
+// and long charts where misses became meaningless. Losses are absolute %, so a
+// late-chart collapse (후살) still costs the same on any chart. GOOD earns half
+// (IIDX GREAT/2). LN-tail loss is 1/4 of a chip miss (SDVX long-note ratio).
 // HARD (survival-style): starts 100, dies at 0. Recovery is intentionally
 // tiny (IIDX hard +0.16/PGREAT) so a miss is never erased by a few notes;
 // GOOD is ±0 (a pass, but no fuel). 20 chip misses = death. Below
 // GAUGE_HARD_LOW_GUARD %, losses are halved (IIDX/SDVX 30% mercy).
-export const GAUGE_NORMAL_TOTAL_GAIN = 200;
+export const GAUGE_NORMAL_TOTAL_GAIN = 150;
 export const GAUGE_HARD_LOW_GUARD = 30;
 export const GAUGE_DELTA = {
   // normal: positive entries are ×a multipliers (a = TOTAL_GAIN / live units);
