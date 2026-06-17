@@ -19,7 +19,8 @@
 //
 // All tunable numbers live in constants.js (GAUGE_DELTA etc.), never here.
 
-import { GAUGE_START, NORMAL_CLEAR_PCT, GAUGE_DELTA, LOCK_TIERS, RANK_TABLE } from './constants.js';
+import { GAUGE_START, NORMAL_CLEAR_PCT, GAUGE_DELTA, LOCK_TIERS, RANK_TABLE,
+         GAUGE_NORMAL_TOTAL_GAIN, GAUGE_HARD_LOW_GUARD } from './constants.js';
 import { D } from './state.js';
 import { PS } from './play-state.js';
 
@@ -28,6 +29,14 @@ import { PS } from './play-state.js';
 /** Reset gauge + lock state at session start. Call from _startPlayImpl. */
 export function resetGauge() {
   PS.gaugeValue = GAUGE_START[PS.gaugeType] ?? 0;
+  // Normal gauge is unit-scaled (IIDX `a`): the positive deltas are multiplied
+  // so that an all-SYNC run sums to exactly GAUGE_NORMAL_TOTAL_GAIN (+200%),
+  // independent of chart length. `unit` counts each note's weight the same way
+  // scoring does — a chip is 1, an LN is 2 (head + tail). With SYNC/TAIL_OK
+  // base 1.0, the all-good sum is a × total = TOTAL_GAIN. Losses stay absolute
+  // (set in GAUGE_DELTA) so a late collapse costs the same on any chart.
+  const totalUnits = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0);
+  PS.gaugeUnitScale = totalUnits > 0 ? (GAUGE_NORMAL_TOTAL_GAIN / totalUnits) : 0;
   // Live lock tier begins at whatever the player is attempting. With no lock
   // it stays 'none' and only the bare gauge decides the outcome.
   PS.lockTier = PS.lockTarget;
@@ -39,8 +48,12 @@ export function resetGauge() {
   PS.flashAt = 0;
 }
 
+// Gauge ceiling per type: Normal can rise to the full +200% target; Hard is a
+// 0..100 survival bar.
+function gaugeMax() { return PS.gaugeType === 'hard' ? 100 : GAUGE_NORMAL_TOTAL_GAIN; }
+
 function clampGauge(v) {
-  return Math.max(0, Math.min(100, v));
+  return Math.max(0, Math.min(gaugeMax(), v));
 }
 
 // ── Judgment feed ────────────────────────────────────────────
@@ -55,7 +68,17 @@ function clampGauge(v) {
 export function gaugeOnJudgment(kind) {
   // 1) Gauge delta
   const table = GAUGE_DELTA[PS.gaugeType] || GAUGE_DELTA.normal;
-  const delta = table[kind] ?? 0;
+  let delta = table[kind] ?? 0;
+
+  if (PS.gaugeType === 'normal') {
+    // Normal: positive deltas (gains) are unit-scaled so all-good = +200%.
+    // Negative deltas (losses) are absolute percentages — left unscaled.
+    if (delta > 0) delta *= (PS.gaugeUnitScale || 0);
+  } else {
+    // Hard: below the low-gauge guard, losses are halved (IIDX/SDVX 30% mercy)
+    // so a dip near death isn't an instant spiral. Gains are unscaled absolutes.
+    if (delta < 0 && PS.gaugeValue <= GAUGE_HARD_LOW_GUARD) delta *= 0.5;
+  }
   PS.gaugeValue = clampGauge(PS.gaugeValue + delta);
 
   // 2) Clear-mark lock evaluation. Map this judgment to the strictest tier

@@ -70,7 +70,8 @@ export const PS = {
   // Set before a session (from Music Select inline options); reset values are
   // re-applied at session start by resetGauge() in gauge.js.
   gaugeType: 'normal',     // 'normal' | 'hard'
-  gaugeValue: 0,           // current 0–100 life
+  gaugeValue: 0,           // current life: Normal 0–200 (+200% target), Hard 0–100
+  gaugeUnitScale: 0,       // Normal per-note gain multiplier (a = 200/totalUnits)
   lockTarget: 'none',      // 'none' | 'fc' | 'ap' | 'as'  (mark being attempted)
   lockMode: 'terminate',   // 'terminate' | 'cascade'
   lockTier: 'none',        // live highest-intact mark while playing (cascade lowers this)

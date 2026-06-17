@@ -332,10 +332,12 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   }
 
   // Judgment line — doubles as the life-gauge bar during a live session.
-  // opts.gauge = {value: 0..100, type: 'normal'|'hard'} when playing; absent
-  // in editor/idle previews, where we draw the plain white line instead.
+  // opts.gauge = {value, type} when playing (value range is type-dependent:
+  // Normal 0..200 for the +200% target, Hard 0..100); absent in editor/idle
+  // previews, where we draw the plain white line instead.
   if (opts.gauge) {
-    const frac = Math.max(0, Math.min(1, opts.gauge.value / 100));
+    const gMax = opts.gauge.type === 'hard' ? 100 : 200;
+    const frac = Math.max(0, Math.min(1, opts.gauge.value / gMax));
     // Gauge tint by type (shared palette): Normal green, Hard red.
     const fill = opts.gauge.color || (opts.gauge.type === 'hard' ? '#ff4a5a' : '#4aff8a');
     // Unfilled track (faint), then the filled portion left→right.
