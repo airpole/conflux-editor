@@ -1,7 +1,7 @@
 // ============================================================
 //  PLAY — playLoop + startPlay / stopPlay + control wrappers
 // ============================================================
-import { $, LEAD_IN_MS } from './constants.js';
+import { $, LEAD_IN_MS, SPEED_MIN, SPEED_MAX, SPEED_STEP } from './constants.js';
 import { D } from './state.js';
 import { ES } from './editor-state.js';
 import { PS } from './play-state.js';
@@ -19,6 +19,7 @@ import { rszActiveCanvas } from './canvas-resize.js';
 import { rszPlayFSCanvas } from './play-render.js';
 import { handleGameCanvasClick } from './play-input.js';
 import { toast } from './utility.js';
+import { setSetting } from './settings.js';
 
 function playLoop(ts) {
   if (!PS.playActive) return;
@@ -320,6 +321,39 @@ export function playToggle() {
 export function playRestart() {
   if (PS.playActive) stopPlay();
   startPlay(true, PS.playAutoplay);
+}
+
+/**
+ * Adjust note SCROLL speed (배속, ES.pvSpd) by ±SPEED_STEP. This is hi-speed
+ * only — the audio playback rate (pitch) is never touched. The new value is
+ * clamped to [SPEED_MIN, SPEED_MAX], mirrored to the editor's speed input, and
+ * persisted via settings.hiSpeed so it survives the session. Works whether or
+ * not a session is live (the render loop reads ES.pvSpd every frame).
+ */
+function adjustSpeed(dir) {
+  const cur = +ES.pvSpd || SPEED_MIN;
+  let next = Math.round((cur + dir * SPEED_STEP) * 10) / 10;  // avoid FP drift
+  next = Math.max(SPEED_MIN, Math.min(SPEED_MAX, next));
+  if (next === cur) return;
+  ES.pvSpd = next;
+  const spd = $('mSpd');
+  if (spd) spd.value = next;
+  // Persist so the speed sticks across sessions (same store as the UI input).
+  try { setSetting('hiSpeed', next, { ES }); } catch (e) {}
+  toast(`배속 ${next.toFixed(1)}`);
+}
+
+/**
+ * Dispatch a bound game action (from PS.codeToAction). Called by the keyboard
+ * handler for keys mapped in PS.actionBindings. Returns true if handled.
+ */
+export function doPlayAction(action) {
+  switch (action) {
+    case 'speedDown': adjustSpeed(-1); return true;
+    case 'speedUp':   adjustSpeed(+1); return true;
+    case 'restart':   playRestart();   return true;
+    default:          return false;
+  }
 }
 
 export function playSeekPreview(v) {

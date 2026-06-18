@@ -16,11 +16,18 @@
 //   playRAF → PS.playRAF
 //   _seekDragMs → PS.seekDragMs
 
-import { DEFAULT_KEYS } from './constants.js';
+import { DEFAULT_KEYS, DEFAULT_ACTION_KEYS } from './constants.js';
 
 export const PS = {
   keyBindings: {...DEFAULT_KEYS},
   codeToChannel: {},
+  // Game-action key bindings, separate from the 6 lane keys. Maps a physical
+  // key to a non-lane action (speedDown / speedUp / restart). Kept apart from
+  // keyBindings/codeToChannel so action keys never resolve as note-input lanes.
+  // codeToAction is the reverse lookup used by the play-mode key handler.
+  actionBindings: {...DEFAULT_ACTION_KEYS},
+  codeToAction: {},
+  actionConfigMode: null,   // action slot awaiting rebind ('speedDown'|...), or null
   keyConfigMode: null,
 
   playActive: false,
@@ -108,5 +115,14 @@ export function rebuildCodeToChannel() {
   }
 }
 
+/** Rebuild PS.codeToAction from PS.actionBindings. Called on action-bind change. */
+export function rebuildCodeToAction() {
+  PS.codeToAction = {};
+  for (const [action, code] of Object.entries(PS.actionBindings)) {
+    if (code) PS.codeToAction[code] = action;
+  }
+}
+
 // Initial build at module load so handlers see the defaults.
 rebuildCodeToChannel();
+rebuildCodeToAction();

@@ -45,8 +45,9 @@ export function goTab(t) {
   if (t !== 'note'  && ES.edPlay.n) stopEdPlay('n');
   if (t !== 'shape' && ES.edPlay.s) stopEdPlay('s');
   if (t !== 'play'  && PS.playActive) _stopPlay();
-  if (ES.activeTab === 'meta' && t !== 'meta' && PS.keyConfigMode !== null) {
+  if (ES.activeTab === 'meta' && t !== 'meta' && (PS.keyConfigMode !== null || PS.actionConfigMode !== null)) {
     PS.keyConfigMode = null;
+    PS.actionConfigMode = null;
     _renderKeyCfg();
   }
   _cancelLN(); _cancelArc(); _cancelTE();

@@ -54,7 +54,20 @@ export const LN_RELEASE_GRACE_MS = 50;
 export const TAB_MAP = {note:'noteP', shape:'shapeP', meta:'metaP', play:'playP'};
 
 // ---- Play mode keys ----
-export const DEFAULT_KEYS = {1:'KeyE', 2:'KeyR', 3:'Space', 4:'Numpad0', 5:'Numpad8', 6:'Numpad9'};
+export const DEFAULT_KEYS = {1:'KeyE', 2:'KeyR', 3:'Space', 4:'ArrowDown', 5:'Backslash', 6:'Numpad7'};
+
+// Game-action key bindings (non-lane), kept separate from the 6 lane keys.
+// Actions:
+//   speedDown / speedUp — adjust note SCROLL speed (배속, ES.pvSpd) by ±0.1.
+//                         This is hi-speed / fall speed only; audio playback
+//                         rate (pitch) is NOT touched and stays 1.0.
+//   restart            — restart the current song from the beginning; works
+//                        even during an active fullscreen session.
+export const DEFAULT_ACTION_KEYS = { speedDown: 'F1', speedUp: 'F2', restart: 'F5' };
+// Scroll-speed (배속) bounds + step for the F1/F2 actions.
+export const SPEED_MIN = 1.0;
+export const SPEED_MAX = 10.0;
+export const SPEED_STEP = 0.1;
 
 // ---- Judgment windows (ms) ----
 export const JUDGE_SYNC       = 25;

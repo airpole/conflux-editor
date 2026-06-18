@@ -52,7 +52,7 @@ import { setVolumes, setAudioOffset } from './audio.js';
 import { toast } from './utility.js';
 import { togglePlayMirror, toggleFastSlow, initPlayOptionsUI } from './play-options.js';
 import { resultRetry, resultBack } from './play-result.js';
-import { resetKeyBindings, loadKeyBindings, renderKeyCfg } from './key-config.js';
+import { resetKeyBindings, resetActionBindings, loadKeyBindings, renderKeyCfg } from './key-config.js';
 import { doExport, doImport } from './import-export.js';
 import { showMod, closeMod, fmSave, fmSaveAs, fmLoad, fmDelete } from './file-manager.js';
 import { autoSave, scheduleAutoSave } from './autosave.js';
@@ -139,7 +139,7 @@ const CLICK_ACTIONS = {
   teEditByIdx:  arg => teEditByIdx(+arg),
   tePickSelect: arg => tePickSelect(+arg),
   // Audio / Jacket / key config (C-7)
-  setOffsetHere, toggleMetronome, resetKeyBindings,
+  setOffsetHere, toggleMetronome, resetKeyBindings, resetActionBindings,
   // Grid picker dropdown items (C-8) — data-arg is "<pickerId>:<divisor>"
   pickGrid: arg => {
     const [id, d] = arg.split(':');

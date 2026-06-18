@@ -12,10 +12,10 @@ import { setST, sZ, pickEase, doShapeCopy, doShapePaste, doShapeFlipSelected,
          doShapeSelectionDelete } from './shape-tools.js';
 import { toggleFollow, toggleSFollow, toggleMirror, cyclePosSnap, cancelArc } from './edit-options.js';
 import { toggleGP } from './grid-picker.js';
-import { renderKeyCfg, startKeyConfig, assignKeyConfig } from './key-config.js';
+import { renderKeyCfg, startKeyConfig, assignKeyConfig, assignActionConfig } from './key-config.js';
 import { handlePlayKeyDown, handlePlayKeyUp } from './play-input.js';
 import { toggleEdPlay } from './edit-playback.js';
-import { playToggle, playRestart, stopPlay } from './play.js';
+import { playToggle, playRestart, stopPlay, doPlayAction } from './play.js';
 import { togglePlayMirror, toggleFastSlow } from './play-options.js';
 import { getSetting } from './settings.js';
 import { fmSave, fmSaveAs, showMod, renderFMList } from './file-manager.js';
@@ -54,10 +54,24 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
+  // Action-key rebind capture (meta tab only): same flow as lane keys, but for
+  // the speedDown / speedUp / restart actions.
+  if (PS.actionConfigMode !== null && ES.activeTab === 'meta') {
+    const MODS = ['ShiftLeft','ShiftRight','ControlLeft','ControlRight','AltLeft','AltRight','MetaLeft','MetaRight'];
+    if (MODS.includes(e.code)) return;
+    e.preventDefault();
+    assignActionConfig(e.code);
+    return;
+  }
+
   // Play mode key input
   if (PS.playActive) {
     e.preventDefault();
     if (e.code === 'Escape') { stopPlay(); return; }
+    // Bound game actions (speed ±, restart) take priority over lane input so a
+    // key mapped to an action never doubles as a note hit.
+    const action = PS.codeToAction[e.code];
+    if (action) { if (!e.repeat) doPlayAction(action); return; }
     if (!e.repeat) handlePlayKeyDown(e.code);
     return;
   }
@@ -168,6 +182,10 @@ document.addEventListener('keydown', (e) => {
 
   // Play tab shortcuts (idle only — during a session every key is game input).
   if (ES.activeTab === 'play') {
+    // Bound game-action keys also work while idle (e.g. F1/F2 pre-set speed,
+    // F5 start/restart from the top). Checked before the letter shortcuts.
+    const idleAction = PS.codeToAction[e.code];
+    if (idleAction) { e.preventDefault(); doPlayAction(idleAction); return; }
     if (e.key === 'Enter') {            // Enter = restart from the beginning
       e.preventDefault();
       playRestart();
@@ -197,6 +215,7 @@ document.addEventListener('keydown', (e) => {
   if (key === 'escape') {
     e.preventDefault();
     if (PS.keyConfigMode !== null) { PS.keyConfigMode = null; renderKeyCfg(); return; }
+    if (PS.actionConfigMode !== null) { PS.actionConfigMode = null; renderKeyCfg(); return; }
     if (ES.activeTab === 'note') {
       cancelLN(); cancelTE(); ES.selectedNotes.clear(); drawN();
     } else if (ES.activeTab === 'shape') {
