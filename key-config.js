@@ -12,7 +12,10 @@ export function keyCodeDisplayName(code) {
   const map = {Space:'SPC', Enter:'ENT', Backspace:'BKSP', Tab:'TAB',
     ArrowLeft:'←', ArrowRight:'→', ArrowUp:'↑', ArrowDown:'↓',
     Escape:'ESC', CapsLock:'CAPS', Delete:'DEL', Insert:'INS',
-    Home:'HOME', End:'END', PageUp:'PgUp', PageDown:'PgDn'};
+    Home:'HOME', End:'END', PageUp:'PgUp', PageDown:'PgDn',
+    Backslash:'\\', Slash:'/', Semicolon:';', Quote:'\'', Comma:',',
+    Period:'.', Minus:'-', Equal:'=', BracketLeft:'[', BracketRight:']',
+    Backquote:'`'};
   if (code.startsWith('F') && !isNaN(code.slice(1))) return code; // F1–F12
   return map[code] || code;
 }

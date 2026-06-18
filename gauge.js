@@ -19,24 +19,26 @@
 //
 // All tunable numbers live in constants.js (GAUGE_DELTA etc.), never here.
 
-import { GAUGE_START, NORMAL_CLEAR_PCT, GAUGE_DELTA, LOCK_TIERS, RANK_TABLE,
-         GAUGE_NORMAL_TOTAL_GAIN, GAUGE_HARD_LOW_GUARD } from './constants.js';
+import { GAUGE_START, NORMAL_CLEAR_PCT, GAUGE_DELTA, GAUGE_NORMAL_TOTAL_GAIN, LOCK_TIERS, RANK_TABLE } from './constants.js';
 import { D } from './state.js';
 import { PS } from './play-state.js';
 
 // ── Lifecycle ────────────────────────────────────────────────
 
+/** Total gauge units in the current chart: tap = 1, LN = 2 (head + tail). */
+function chartUnitTotal() {
+  return (D.notes || []).reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0);
+}
+
 /** Reset gauge + lock state at session start. Call from _startPlayImpl. */
 export function resetGauge() {
   PS.gaugeValue = GAUGE_START[PS.gaugeType] ?? 0;
-  // Normal gauge is unit-scaled (IIDX `a`): the positive deltas are multiplied
-  // so that an all-SYNC run sums to exactly GAUGE_NORMAL_TOTAL_GAIN (+200%),
-  // independent of chart length. `unit` counts each note's weight the same way
-  // scoring does — a chip is 1, an LN is 2 (head + tail). With SYNC/TAIL_OK
-  // base 1.0, the all-good sum is a × total = TOTAL_GAIN. Losses stay absolute
-  // (set in GAUGE_DELTA) so a late collapse costs the same on any chart.
-  const totalUnits = D.notes.reduce((s, n) => s + (n.duration > 0 ? 2 : 1), 0);
-  PS.gaugeUnitScale = totalUnits > 0 ? (GAUGE_NORMAL_TOTAL_GAIN / totalUnits) : 0;
+  // Normal gauge is length-agnostic: the per-unit recovery `a` is sized so an
+  // all-SYNC run sums to GAUGE_NORMAL_TOTAL_GAIN (%). Computed once here from
+  // the chart's unit count; losses stay absolute and ignore `a`. Empty/loading
+  // charts get a = 0 (no notes → no recovery; avoids divide-by-zero).
+  const units = chartUnitTotal();
+  PS.gaugeUnitGain = units > 0 ? (GAUGE_NORMAL_TOTAL_GAIN / units) : 0;
   // Live lock tier begins at whatever the player is attempting. With no lock
   // it stays 'none' and only the bare gauge decides the outcome.
   PS.lockTier = PS.lockTarget;
@@ -48,13 +50,30 @@ export function resetGauge() {
   PS.flashAt = 0;
 }
 
-// Gauge ceiling: both types cap at 100. Normal's all-good gain sums to +150%
-// (GAUGE_NORMAL_TOTAL_GAIN) but the bar stops at 100 — the surplus 50% is
-// headroom that absorbs some dropped notes without leaving the cap.
-function gaugeMax() { return 100; }
-
 function clampGauge(v) {
-  return Math.max(0, Math.min(gaugeMax(), v));
+  return Math.max(0, Math.min(100, v));
+}
+
+/**
+ * Gauge delta for one judgment, in percentage points.
+ *   Normal: GAIN_* are ×a (a = PS.gaugeUnitGain); LOSS_* are absolute %.
+ *   Hard:   flat absolute % from the table (no a-scaling, no mercy).
+ */
+function gaugeDelta(kind) {
+  if (PS.gaugeType === 'hard') {
+    return GAUGE_DELTA.hard[kind] ?? 0;
+  }
+  const a = PS.gaugeUnitGain || 0;
+  const n = GAUGE_DELTA.normal;
+  switch (kind) {
+    case 'SYNC':      return a * n.GAIN_SYNC;
+    case 'PERFECT':   return a * n.GAIN_PERFECT;
+    case 'GOOD':      return a * n.GAIN_GOOD;
+    case 'TAIL_OK':   return a * n.GAIN_TAIL_OK;
+    case 'MISS':      return n.LOSS_MISS;       // absolute, not ×a
+    case 'TAIL_MISS': return n.LOSS_TAIL_MISS;  // absolute, == MISS
+    default:          return 0;
+  }
 }
 
 // ── Judgment feed ────────────────────────────────────────────
@@ -67,20 +86,8 @@ function clampGauge(v) {
  * Returns true if this judgment force-ends the session (caller should stop).
  */
 export function gaugeOnJudgment(kind) {
-  // 1) Gauge delta
-  const table = GAUGE_DELTA[PS.gaugeType] || GAUGE_DELTA.normal;
-  let delta = table[kind] ?? 0;
-
-  if (PS.gaugeType === 'normal') {
-    // Normal: positive deltas (gains) are unit-scaled so all-good = +200%.
-    // Negative deltas (losses) are absolute percentages — left unscaled.
-    if (delta > 0) delta *= (PS.gaugeUnitScale || 0);
-  } else {
-    // Hard: below the low-gauge guard, losses are halved (IIDX/SDVX 30% mercy)
-    // so a dip near death isn't an instant spiral. Gains are unscaled absolutes.
-    if (delta < 0 && PS.gaugeValue <= GAUGE_HARD_LOW_GUARD) delta *= 0.5;
-  }
-  PS.gaugeValue = clampGauge(PS.gaugeValue + delta);
+  // 1) Gauge delta (length-agnostic gains for normal, flat for hard).
+  PS.gaugeValue = clampGauge(PS.gaugeValue + gaugeDelta(kind));
 
   // 2) Clear-mark lock evaluation. Map this judgment to the strictest tier
   //    it still satisfies, then break any locked tier it falls short of.
@@ -217,11 +224,6 @@ export function computeResult(forceEnded) {
     slowCount: PS.slowCount,
     cleared, failed: !!forceEnded || (!cleared && !forceEnded ? (PS.gaugeType === 'normal') : false),
     forceEnded: !!forceEnded,
-    // Record eligibility: a run may write the saved best ONLY if it was played
-    // from the beginning, never slowed below 1.0×, and not autoplay. Practice-
-    // style sessions still get a Result screen but must not touch the best.
-    recordEligible:
-      !!PS.playStartedFromBeginning && !PS.playUsedSlowRate && !PS.playAutoplay,
     options: {
       gaugeType: PS.gaugeType,
       lockTarget: PS.lockTarget,

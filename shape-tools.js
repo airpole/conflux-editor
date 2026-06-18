@@ -108,7 +108,7 @@ export function doShapeCopy() {
   ES.shapeClipboard = sel.map(e => ({
     relDestTick: (e.startTick + e.duration) - minDest,
     targetPos: e.targetPos,
-    isRight: e.isRight,
+    isBlue: e.isBlue,
     easing: e.easing,
     isStep: e.duration === 0
   }));
@@ -121,12 +121,12 @@ export function doShapePaste(flip) {
   const newEvts = [];
   for (const c of ES.shapeClipboard) {
     const destTick = baseTick + c.relDestTick;
-    let pos = c.targetPos, isR = c.isRight;
-    if (flip) { pos = 64 - pos; isR = !isR; }
+    let pos = c.targetPos, isB = c.isBlue;
+    if (flip) { pos = 64 - pos; isB = !isB; }
     const ne = {
       startTick: c.isStep ? destTick : 0,
       duration:  c.isStep ? 0 : destTick,
-      isRight: isR,
+      isBlue: isB,
       targetPos: pos,
       easing: c.easing
     };
@@ -148,9 +148,9 @@ export function doShapeFlipSelected() {
     pairs.push({
       event: e,
       oldTargetPos: e.targetPos,
-      oldIsRight: e.isRight,
+      oldIsBlue: e.isBlue,
       newTargetPos: 64 - e.targetPos,
-      newIsRight: !e.isRight
+      newIsBlue: !e.isBlue
     });
   }
   if (pairs.length === 0) { toast('Nothing to flip (Init only)'); return; }
@@ -160,10 +160,10 @@ export function doShapeFlipSelected() {
 
 /**
  * Phase 3-2/3-3: Compute the op describing how a tap on (tick, pos) for
- * the given (isRight, easing) should mutate D.shapeEvents.
+ * the given (isBlue, easing) should mutate D.shapeEvents.
  *
  * Returns one of:
- *   { kind: 'add', event: {startTick, duration, isRight, targetPos, easing} }
+ *   { kind: 'add', event: {startTick, duration, isBlue, targetPos, easing} }
  *     — when no existing event sits on the same chain at this tick, OR
  *       there is one but its targetPos differs from `pos`.
  *   { kind: 'set', event: existRef, oldFields, newFields }
@@ -178,13 +178,13 @@ export function doShapeFlipSelected() {
  * whole tap-with-mirror is one undo unit, and the factory normalizes
  * both chains once at the end.
  */
-export function addShapeEvt(tick, pos, isRight, easing) {
+export function addShapeEvt(tick, pos, isBlue, easing) {
   const sameTickSameSide = D.shapeEvents.filter(e => {
     const dest = e.startTick + e.duration;
-    return Math.abs(dest - tick) < 1 && e.isRight === isRight && e.easing !== null;
+    return Math.abs(dest - tick) < 1 && e.isBlue === isBlue && e.easing !== null;
   });
   if (sameTickSameSide.length === 0) {
-    return { kind: 'add', event: {startTick: 0, duration: tick, isRight, targetPos: pos, easing} };
+    return { kind: 'add', event: {startTick: 0, duration: tick, isBlue, targetPos: pos, easing} };
   } else if (sameTickSameSide.length === 1) {
     const exist = sameTickSameSide[0];
     if (Math.abs(exist.targetPos - pos) < 0.01) {
@@ -195,7 +195,7 @@ export function addShapeEvt(tick, pos, isRight, easing) {
         newFields: { easing }
       };
     } else {
-      return { kind: 'add', event: {startTick: 0, duration: tick, isRight, targetPos: pos, easing} };
+      return { kind: 'add', event: {startTick: 0, duration: tick, isBlue, targetPos: pos, easing} };
     }
   } else {
     const last = sameTickSameSide[sameTickSameSide.length - 1];

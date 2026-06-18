@@ -272,14 +272,14 @@ export const FlipShapeEvents = (pairs) => cmd(
   () => {
     for (const p of pairs) {
       p.event.targetPos = p.newTargetPos;
-      p.event.isRight = p.newIsRight;
+      p.event.isBlue = p.newIsBlue;
     }
     _normalizeBothChains();
   },
   () => {
     for (const p of pairs) {
       p.event.targetPos = p.oldTargetPos;
-      p.event.isRight = p.oldIsRight;
+      p.event.isBlue = p.oldIsBlue;
     }
     _normalizeBothChains();
   },

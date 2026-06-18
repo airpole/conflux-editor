@@ -6,16 +6,16 @@
 // legacy compat wrappers invalidateShapeCache/invalidateLinesCache, which
 // forward to the same mechanism.
 //
-// Phase 3-5 semantic note:
-//   `isRight` is a *chain identifier*, not a direction. The two chains are
-//   labeled "Blue" (isRight=false) and "Red" (isRight=true) in the UI. Either
+// Phase 3-5 / schema v3 semantic note:
+//   `isBlue` is a *chain identifier*, not a direction. The two chains are
+//   labeled "Blue" (isBlue=true) and "Red" (isBlue=false) in the UI. Either
 //   chain may be visually left or right of the other at any given tick — the
 //   rendering layer (drawGameFrame) picks min/max per tick to produce the
 //   actual gameplay boundaries. Shape tab (drawS) shows the raw chains so
 //   the editor can manipulate each curve independently; crossings are a
 //   legitimate editing workflow, not an error state.
-//   The field name `isRight` is retained to avoid a schema bump — only its
-//   interpretation changed, not the data layout.
+//   (Renamed from the legacy `isRight` field in schema v3; isBlue = !isRight.
+//    loadChartData migrates old charts.)
 
 import { D } from './state.js';
 import { defineCache, get, invalidate } from './cache.js';
@@ -40,8 +40,8 @@ export function shapeEventCmp(a, b) {
 // Computed together because they share a filter; memoized together
 // because they invalidate together.
 defineCache('shapeChains', ['shapeEvents'], () => {
-  const leftAll  = D.shapeEvents.filter(e => !e.isRight);
-  const rightAll = D.shapeEvents.filter(e =>  e.isRight);
+  const leftAll  = D.shapeEvents.filter(e =>  e.isBlue);
+  const rightAll = D.shapeEvents.filter(e => !e.isBlue);
   const lInit = leftAll.find(e => e.easing === null);
   const rInit = rightAll.find(e => e.easing === null);
   const stepTicks = new Set();
@@ -187,8 +187,8 @@ export function isStepTick(tick) {
 // Otherwise (previous was Out-Sine) returns In-Sine — creating the alternation that "Arc" mode is about.
 // Phase 3-2: 'Step' branch removed. Zero-duration Linear events behave the
 // same as the old Step (already covered by `prev.evt.duration === 0`).
-export function resolveArcEasing(isRight, tick) {
-  const sideEvts = D.shapeEvents.filter(e => e.isRight === isRight && e.easing !== null);
+export function resolveArcEasing(isBlue, tick) {
+  const sideEvts = D.shapeEvents.filter(e => e.isBlue === isBlue && e.easing !== null);
   const sorted = sideEvts.map(e => ({evt: e, dest: e.startTick + e.duration})).sort((a, b) => a.dest - b.dest);
   const prev = sorted.filter(s => s.dest < tick).pop();
   if (!prev || prev.evt.easing === 'Linear' || prev.evt.duration === 0 || prev.evt.easing === 'In-Sine') {
@@ -198,9 +198,9 @@ export function resolveArcEasing(isRight, tick) {
 }
 
 // Normalize shape chain: fix startTick/duration so events form a proper sequence by destTick
-export function normalizeShapeChain(isRight) {
-  const inits = D.shapeEvents.filter(e => e.isRight === isRight && e.easing === null);
-  const trans = D.shapeEvents.filter(e => e.isRight === isRight && e.easing !== null);
+export function normalizeShapeChain(isBlue) {
+  const inits = D.shapeEvents.filter(e => e.isBlue === isBlue && e.easing === null);
+  const trans = D.shapeEvents.filter(e => e.isBlue === isBlue && e.easing !== null);
   trans.forEach(e => {
     e._dest = e.startTick + e.duration;
     e._isStep = (e.duration === 0);

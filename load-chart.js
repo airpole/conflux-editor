@@ -76,9 +76,14 @@ export function loadChartData(d) {
   if (d.shapeEvents) {
     D.shapeEvents = d.shapeEvents;
     // Phase 3-2: 'Step' → 'Linear' migration (duration=0 keeps instant-jump).
+    // Schema v3: rename isRight → isBlue (inverted; isBlue = !isRight). Events
+    // from v≤2 carry isRight; convert and drop the old field. New-format events
+    // already have isBlue and are left untouched.
     D.shapeEvents.forEach(e => {
       if (e.easing === 'Still' || e.easing === 'Arc') e.easing = 'Linear';
       if (e.easing === 'Step') e.easing = 'Linear';
+      if (e.isBlue === undefined && e.isRight !== undefined) e.isBlue = !e.isRight;
+      delete e.isRight;
     });
     invalidateShapeCache();
   }
@@ -94,7 +99,7 @@ export function loadChartData(d) {
     });
   }
   D.textEvents = d.textEvents || [];
-  D.schemaVersion = 2;
+  D.schemaVersion = 3;
   PS.playHitMap.clear(); PS.playMissSet.clear(); PS.playEffects = [];
   PS.playJudgQueue = []; PS.playCombo = 0; PS.playMaxCombo = 0;
   invalidateNoteOverlaps();

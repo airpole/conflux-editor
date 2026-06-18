@@ -272,7 +272,7 @@ export function drawS() {
     const dotTk = e.startTick + e.duration;
     if (!dotTickMap.has(dotTk)) dotTickMap.set(dotTk, {L:[], R:[]});
     const entry = dotTickMap.get(dotTk);
-    if (e.isRight) entry.R.push(i); else entry.L.push(i);
+    if (!e.isBlue) entry.R.push(i); else entry.L.push(i);
   }
 
   for (const e of D.shapeEvents) {
@@ -282,7 +282,7 @@ export function drawS() {
     const x = p2x(e.targetPos);
     if (y < gy - 6 || y > gy + gh + 6) continue;
 
-    const c = e.isRight ? '#ff6b8a' : '#6bb5ff';
+    const c = e.isBlue ? '#6bb5ff' : '#ff6b8a';
     const isSel = ES.selectedShapeEvts.has(e);
     const r = isSel ? 6 : 4;
 

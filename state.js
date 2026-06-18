@@ -8,12 +8,15 @@
 // schemaVersion:
 //   1  (or absent) = pre-Phase 3-2 format. May contain easing: 'Step'.
 //                    loadChartData migrates these to easing: 'Linear'.
-//   2  = current.   No 'Step' easing. duration=0 expresses instant jump.
+//   2  = no 'Step' easing. duration=0 expresses instant jump. Shape events
+//        used the field `isRight` (false = Blue chain, true = Red).
+//   3  = current. Shape chain field renamed `isRight` → `isBlue` (inverted:
+//        isBlue = !isRight). loadChartData migrates v≤2 events.
 
 export const D = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   metadata: {
-    title: "Untitled", subtitle: "", artist: "airpole", charter: "airpole",
+    title: "Untitled", subtitle: "", artist: "", charter: "airpole",
     audioFile: "", offset: 0, difficulty: "Trace", level: 0,
     // Phase 7-2: Display-only offset added to measure numbers in UI labels.
     // Internal measure indexing is unchanged (tick 0 = internal measure 1);
@@ -33,8 +36,8 @@ export const D = {
   tempo: [{tick: 0, bpm: 120}],
   timeSignatures: [{tick: 0, numerator: 4, denominator: 4}],
   shapeEvents: [
-    {startTick: 0, duration: 0, isRight: false, targetPos: 24, easing: null},
-    {startTick: 0, duration: 0, isRight: true,  targetPos: 40, easing: null}
+    {startTick: 0, duration: 0, isBlue: true,  targetPos: 24, easing: null},
+    {startTick: 0, duration: 0, isBlue: false, targetPos: 40, easing: null}
   ],
   lineEvents: [{startTick: 0, duration: 0, lines: [25, 25, 25, 25]}],
   notes: [],

@@ -44,7 +44,7 @@ function findDotAt(x, y, met) {
     const dotTk = e.startTick + e.duration;
     if (!dotTicks.has(dotTk)) dotTicks.set(dotTk, {});
     const entry = dotTicks.get(dotTk);
-    if (e.isRight) entry.R = i; else entry.L = i;
+    if (!e.isBlue) entry.R = i; else entry.L = i;
   }
   for (const [tk, pair] of dotTicks) {
     if (pair.L === undefined && pair.R === undefined) continue;
@@ -111,7 +111,7 @@ function onDown(e) {
             oldStartTick: ev.startTick,
             oldDuration:  ev.duration,
             oldTargetPos: ev.targetPos,
-            oldIsRight:   ev.isRight
+            oldIsBlue:    ev.isBlue
           }));
           return;
         }
@@ -231,13 +231,13 @@ function onUp(e) {
         startTick: o.oldStartTick,
         duration:  o.oldDuration,
         targetPos: o.oldTargetPos,
-        isRight:   o.oldIsRight
+        isBlue:    o.oldIsBlue
       }));
       const newSnaps = events.map(ev => ({
         startTick: ev.startTick,
         duration:  ev.duration,
         targetPos: ev.targetPos,
-        isRight:   ev.isRight
+        isBlue:    ev.isBlue
       }));
       // Skip dispatch if no actual change (e.g. drag returned to origin).
       let changed = false;
@@ -356,7 +356,7 @@ export function handleSTap(e) {
       const ev = D.shapeEvents[best];
       if (ev.easing === null) {
         const curExt = posToExtStr(ev.targetPos);
-        const val = prompt(`Move init ${ev.isRight ? 'R' : 'L'} position (-8~8):`, curExt);
+        const val = prompt(`Move init ${!ev.isBlue ? 'R' : 'L'} position (-8~8):`, curExt);
         if (val !== null && !isNaN(+val)) {
           const newPos = Math.max(0, Math.min(64, Math.round((+val + 8) * 4)));
           if (newPos !== ev.targetPos) {
@@ -366,7 +366,7 @@ export function handleSTap(e) {
               [{ targetPos: newPos }]
             ));
           }
-          toast(`Init ${ev.isRight ? 'R' : 'L'} → ${posToExtStr(newPos)}`);
+          toast(`Init ${!ev.isBlue ? 'R' : 'L'} → ${posToExtStr(newPos)}`);
         }
         return;
       }

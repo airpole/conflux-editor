@@ -54,7 +54,7 @@ export const LN_RELEASE_GRACE_MS = 50;
 export const TAB_MAP = {note:'noteP', shape:'shapeP', meta:'metaP', play:'playP'};
 
 // ---- Play mode keys ----
-export const DEFAULT_KEYS = {1:'KeyE', 2:'KeyR', 3:'Space', 4:'Numpad0', 5:'Numpad8', 6:'Numpad9'};
+export const DEFAULT_KEYS = {1:'KeyE', 2:'KeyR', 3:'Space', 4:'ArrowDown', 5:'Backslash', 6:'Numpad7'};
 
 // ---- Judgment windows (ms) ----
 export const JUDGE_SYNC       = 25;
@@ -67,10 +67,7 @@ export const JUDGE_WIDE_SYNC  = 100; // Wide notes: SYNC only, ±100ms
 // Values are in percent points applied to a 0–100 gauge. These are FIRST-PASS
 // numbers meant to be tuned after real play — keep them all in this one table.
 //
-//   Normal: clears if gauge >= NORMAL_CLEAR_PCT at song end. An all-good run is
-//           worth GAUGE_NORMAL_TOTAL_GAIN (+150%) of gain but the gauge is
-//           capped/displayed at 100, so the extra 50% is headroom — you can
-//           drop some notes and still sit at 100. Clear line is 75.
+//   Normal: clears if gauge >= NORMAL_CLEAR_PCT at song end.
 //   Hard:   starts at 100, fails the instant gauge hits 0. MISS = -5 means
 //           20 consecutive misses (20 × 5 = 100) drain a full bar, matching
 //           the "20-miss fail" intent while staying a continuous gauge.
@@ -80,27 +77,29 @@ export const JUDGE_WIDE_SYNC  = 100; // Wide notes: SYNC only, ±100ms
 export const GAUGE_START = { normal: 0, hard: 100 };
 export const NORMAL_CLEAR_PCT = 75;
 
-// ---- Gauge tuning (modeled on IIDX groove/survival + SDVX EF/EX) ----
-// NORMAL (groove-style): per-unit GAIN is chart-size dependent — an all-good
-// run sums to GAUGE_NORMAL_TOTAL_GAIN (+150%), like IIDX's `a`. The gauge is
-// CAPPED and displayed at 100, so the extra 50% of potential gain is headroom:
-// you can drop a chunk of notes and still finish at 100. This fixes two
-// failures of a fixed gain: short charts that could never reach the clear line,
-// and long charts where misses became meaningless. Losses are absolute %, so a
-// late-chart collapse (후살) still costs the same on any chart. GOOD earns half
-// (IIDX GREAT/2). LN-tail loss is 1/4 of a chip miss (SDVX long-note ratio).
-// HARD (survival-style): starts 100, dies at 0. Recovery is intentionally
-// tiny (IIDX hard +0.16/PGREAT) so a miss is never erased by a few notes;
-// GOOD is ±0 (a pass, but no fuel). 20 chip misses = death. Below
-// GAUGE_HARD_LOW_GUARD %, losses are halved (IIDX/SDVX 30% mercy).
-export const GAUGE_NORMAL_TOTAL_GAIN = 150;
-export const GAUGE_HARD_LOW_GUARD = 30;
+// ---- Gauge tuning (length-agnostic Normal, survival Hard) ----
+// NORMAL (groove-style, length-agnostic): GAINS are ×a multipliers where the
+// per-unit unit `a = GAUGE_NORMAL_TOTAL_GAIN / totalUnits` is computed once at
+// session start (resetGauge) from the chart's unit count (tap=1, LN=2). So an
+// all-SYNC run always SUMS to +GAUGE_NORMAL_TOTAL_GAIN (=150%) of potential
+// recovery, regardless of chart length — short charts can still reach the
+// clear line and long charts keep misses meaningful. The gauge itself caps at
+// 100, so the surplus above 100 is simply discarded; clearing at
+// NORMAL_CLEAR_PCT (75%) means roughly half the units as SYNC suffices.
+// LOSSES are ABSOLUTE percentages (NOT ×a), so a late collapse (후살) costs the
+// same on any chart: MISS and TAIL_MISS both −2%, treated identically.
+// HARD (survival-style): starts 100, dies at 0. Every entry is an absolute
+// percentage with NO low-gauge mercy — losses are the same at any gauge level.
+export const GAUGE_NORMAL_TOTAL_GAIN = 150;  // all-SYNC potential recovery (%)
 export const GAUGE_DELTA = {
-  // normal: positive entries are ×a multipliers (a = TOTAL_GAIN / live units);
-  //         negative entries are absolute percentages.
-  normal: { SYNC: 1.0, PERFECT: 1.0, GOOD: 0.5, TAIL_OK: 1.0, MISS: -6.0, TAIL_MISS: -1.5 },
-  // hard: every entry is an absolute percentage.
-  hard:   { SYNC: +0.15, PERFECT: +0.15, GOOD: 0, TAIL_OK: +0.1, MISS: -5.0, TAIL_MISS: -2.5 },
+  // normal: GAIN_* are ×a multipliers (a = TOTAL_GAIN / totalUnits);
+  //         LOSS_* are absolute percentages.
+  normal: {
+    GAIN_SYNC: 1.0, GAIN_PERFECT: 1.0, GAIN_GOOD: 0.5, GAIN_TAIL_OK: 1.0,
+    LOSS_MISS: -2.0, LOSS_TAIL_MISS: -2.0,
+  },
+  // hard: every entry is an absolute percentage (no a-scaling, no mercy).
+  hard: { SYNC: +0.15, PERFECT: +0.15, GOOD: 0, TAIL_OK: +0.1, MISS: -5.0, TAIL_MISS: -2.5 },
 };
 
 // ---- Clear-mark lock options (on top of the chosen gauge) ----

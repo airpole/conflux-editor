@@ -6,7 +6,7 @@
 // (a) raw vs normalized chains, and (b) cosmetic stroke styling.
 //
 // Phase 3-5 reminder (from shape.js header):
-//   isRight is a *chain identifier*, not a direction. Either chain may
+//   isBlue is a *chain identifier*, not a direction. Either chain may
 //   be visually left or right at any given tick. drawS shows raw chains
 //   (so the editor can manipulate each curve independently); drawGameFrame
 //   shows normalized min/max (so gameplay sees ordered boundaries).
