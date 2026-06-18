@@ -27,6 +27,9 @@ export const PS = {
   playFullscreen: false,
   playStartedFromBeginning: false,
   playAutoplay: false,
+  // True if the session ever ran below 1.0× playback rate. Set by setRate while
+  // a session is active; gates record eligibility (a slowed run is practice).
+  playUsedSlowRate: false,
 
   playT0: 0,
   playOffMs: 0,
@@ -67,8 +70,8 @@ export const PS = {
   // Set before a session (from Music Select inline options); reset values are
   // re-applied at session start by resetGauge() in gauge.js.
   gaugeType: 'normal',     // 'normal' | 'hard'
-  gaugeValue: 0,           // current 0–100 life
-  gaugeUnitGain: 0,        // Normal: per-unit recovery `a` = TOTAL_GAIN/units (set by resetGauge)
+  gaugeValue: 0,           // current life 0–100 (both types cap at 100)
+  gaugeUnitScale: 0,       // Normal per-note gain multiplier (a = 150/totalUnits; surplus over 100 discarded)
   lockTarget: 'none',      // 'none' | 'fc' | 'ap' | 'as'  (mark being attempted)
   lockMode: 'terminate',   // 'terminate' | 'cascade'
   lockTier: 'none',        // live highest-intact mark while playing (cascade lowers this)

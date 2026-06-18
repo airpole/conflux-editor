@@ -54,7 +54,7 @@ export const LN_RELEASE_GRACE_MS = 50;
 export const TAB_MAP = {note:'noteP', shape:'shapeP', meta:'metaP', play:'playP'};
 
 // ---- Play mode keys ----
-export const DEFAULT_KEYS = {1:'KeyE', 2:'KeyR', 3:'Space', 4:'ArrowDown', 5:'Backslash', 6:'Numpad7'};
+export const DEFAULT_KEYS = {1:'KeyE', 2:'KeyR', 3:'Space', 4:'Numpad0', 5:'Numpad8', 6:'Numpad9'};
 
 // ---- Judgment windows (ms) ----
 export const JUDGE_SYNC       = 25;
@@ -78,28 +78,23 @@ export const GAUGE_START = { normal: 0, hard: 100 };
 export const NORMAL_CLEAR_PCT = 75;
 
 // ---- Gauge tuning (length-agnostic Normal, survival Hard) ----
-// NORMAL (groove-style, length-agnostic): GAINS are ×a multipliers where the
-// per-unit unit `a = GAUGE_NORMAL_TOTAL_GAIN / totalUnits` is computed once at
-// session start (resetGauge) from the chart's unit count (tap=1, LN=2). So an
-// all-SYNC run always SUMS to +GAUGE_NORMAL_TOTAL_GAIN (=150%) of potential
-// recovery, regardless of chart length — short charts can still reach the
-// clear line and long charts keep misses meaningful. The gauge itself caps at
-// 100, so the surplus above 100 is simply discarded; clearing at
-// NORMAL_CLEAR_PCT (75%) means roughly half the units as SYNC suffices.
-// LOSSES are ABSOLUTE percentages (NOT ×a), so a late collapse (후살) costs the
-// same on any chart: MISS and TAIL_MISS both −2%, treated identically.
+// NORMAL (groove-style, length-agnostic): positive deltas are ×a multipliers
+// where a = GAUGE_NORMAL_TOTAL_GAIN / totalUnits (tap=1, LN=2), computed once
+// at session start. An all-SYNC run therefore sums to +GAUGE_NORMAL_TOTAL_GAIN
+// (=150%) of POTENTIAL recovery on any chart length. The gauge itself caps at
+// 100 (gauge.js gaugeMax), so the surplus above 100 is discarded — clearing at
+// NORMAL_CLEAR_PCT (75%) needs roughly half the units as SYNC. LOSSES are
+// ABSOLUTE percentages (sign<0, never ×a): MISS and TAIL_MISS are both −2% and
+// treated identically, so a late collapse (후살) costs the same on any chart.
 // HARD (survival-style): starts 100, dies at 0. Every entry is an absolute
-// percentage with NO low-gauge mercy — losses are the same at any gauge level.
-export const GAUGE_NORMAL_TOTAL_GAIN = 150;  // all-SYNC potential recovery (%)
+// percentage with NO low-gauge mercy — a loss is the same at any gauge level.
+export const GAUGE_NORMAL_TOTAL_GAIN = 150;  // all-SYNC POTENTIAL recovery (%), capped at 100
 export const GAUGE_DELTA = {
-  // normal: GAIN_* are ×a multipliers (a = TOTAL_GAIN / totalUnits);
-  //         LOSS_* are absolute percentages.
-  normal: {
-    GAIN_SYNC: 1.0, GAIN_PERFECT: 1.0, GAIN_GOOD: 0.5, GAIN_TAIL_OK: 1.0,
-    LOSS_MISS: -2.0, LOSS_TAIL_MISS: -2.0,
-  },
+  // normal: positive entries are ×a multipliers (a = TOTAL_GAIN / total units);
+  //         negative entries are absolute percentages (MISS == TAIL_MISS).
+  normal: { SYNC: 1.0, PERFECT: 1.0, GOOD: 0.5, TAIL_OK: 1.0, MISS: -2.0, TAIL_MISS: -2.0 },
   // hard: every entry is an absolute percentage (no a-scaling, no mercy).
-  hard: { SYNC: +0.15, PERFECT: +0.15, GOOD: 0, TAIL_OK: +0.1, MISS: -5.0, TAIL_MISS: -2.5 },
+  hard:   { SYNC: +0.15, PERFECT: +0.15, GOOD: 0, TAIL_OK: +0.1, MISS: -5.0, TAIL_MISS: -2.5 },
 };
 
 // ---- Clear-mark lock options (on top of the chosen gauge) ----
