@@ -13,7 +13,7 @@
 // the text-events overlay.
 
 import { TPB, CHL, KEY2LINE, WIDE_BODY, WIDE_COLOR, OVERLAP_COLOR, OVERLAP_BODY,
-         NORMAL_BODY, INVALID_COLOR } from './constants.js';
+         NORMAL_BODY, INVALID_COLOR, NORMAL_CLEAR_PCT } from './constants.js';
 import { D } from './state.js';
 import { PS } from './play-state.js';
 import { ES } from './editor-state.js';
@@ -32,7 +32,7 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
 
   const curTk = ms2t(curMs);
   const visMs = 2000 / ES.pvSpd;
-  const jY = gy + gh * (8 / 9);
+  const jY = gy + gh * (ES.judgeLinePos ?? (8 / 9));
   const topMs = curMs + visMs, botMs = curMs - visMs * 0.15;
   const _mir = PS.mirrorShape;
   const p2x = p => _mir ? gx + (1 - sp2f(p)) * gw : gx + sp2f(p) * gw;
@@ -113,18 +113,39 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     if (wAlpha !== 1) ctx.globalAlpha = 1;
   }
 
-  // Inner line dividers
+  // Inner line dividers. At a step tick the boundary jumps instantly, so the
+  // divider x jumps too; drawing it as one continuous polyline would link the
+  // pre- and post-jump x with a stray horizontal segment. Instead we BREAK the
+  // path at each step (moveTo, not lineTo) so each side renders on its own with
+  // no horizontal connector — e.g. a divider at x=5 then x=7.5 shows two
+  // separate verticals, not a 5→7.5 bridge. Steps are detected by a stepTick
+  // lying between two consecutive sample ticks (buildShapePointArrays emits an
+  // ε-pair straddling each step tick).
+  const stepBetween = (a, b) => {
+    for (const stk of stepTicks) {
+      const lo = Math.min(a, b), hi = Math.max(a, b);
+      if (stk > lo && stk < hi) return true;
+    }
+    return false;
+  };
   for (let ln = 0; ln < 3; ln++) {
     ctx.strokeStyle = '#ffffff22'; ctx.lineWidth = 1.5;
     ctx.beginPath();
-    let fi = true;
+    let fi = true, prevTk = null;
     for (const pt of lP) {
       const tk = pt.tk;
       const info = getTkInfo(tk); const sh = info.sh, lines = info.lines;
       const lx = p2x(sh.left), rx = p2x(sh.right), sw = rx - lx;
       let cum = 0; for (let k = 0; k <= ln; k++) cum += lines[k] / 100;
       const dx = lx + cum * sw;
-      if (fi) { ctx.moveTo(dx, pt.y); fi = false; } else ctx.lineTo(dx, pt.y);
+      // Start a fresh sub-path at the first point, or whenever a step tick sits
+      // between this point and the previous one (break the horizontal link).
+      if (fi || (prevTk !== null && stepBetween(prevTk, tk))) {
+        ctx.moveTo(dx, pt.y); fi = false;
+      } else {
+        ctx.lineTo(dx, pt.y);
+      }
+      prevTk = tk;
     }
     ctx.stroke();
   }
@@ -338,8 +359,14 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   // bar range is plain 0..100 for both types.)
   if (opts.gauge) {
     const frac = Math.max(0, Math.min(1, opts.gauge.value / 100));
-    // Gauge tint by type (shared palette): Normal green, Hard red.
-    const fill = opts.gauge.color || (opts.gauge.type === 'hard' ? '#ff4a5a' : '#4aff8a');
+    // Gauge tint by type. Normal: green below the clear line, BRIGHT SKY-BLUE
+    // once the gauge reaches NORMAL_CLEAR_PCT (75%) — a clear-secured signal
+    // that recolors the whole filled bar. Hard: always red (no clear-line flip).
+    const normalCleared = opts.gauge.type !== 'hard' && opts.gauge.value >= NORMAL_CLEAR_PCT;
+    const fill = opts.gauge.color
+      || (opts.gauge.type === 'hard' ? '#ff4a5a'
+         : normalCleared ? '#4ad6ff'   // bright sky-blue: clear secured
+         : '#4aff8a');                  // green: below clear line
     // Unfilled track (faint), then the filled portion left→right.
     ctx.fillStyle = 'rgba(255,255,255,0.10)';
     ctx.fillRect(gx, jY - 3, gw, 6);

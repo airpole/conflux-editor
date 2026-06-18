@@ -68,6 +68,7 @@ export function makeEditorContext(ES, deps) {
     get hitVol()  { return ES.hitVol; },
     get pvSpd()   { return ES.pvSpd; },
     get nThk()    { return ES.nThk; },
+    get judgeLinePos() { return ES.judgeLinePos ?? (8 / 9); },
     // Preserve the original guard: repaint the play idle frame only while the
     // Play tab is the active tab. deps supplies the editor-only helpers so this
     // module needs no editor imports (keeps the engine layer import-clean).
@@ -89,6 +90,7 @@ export function makeGameContext(opts) {
     hitVol: o.hitVol ?? 1.0,
     pvSpd: o.pvSpd ?? 3.0,
     nThk: o.nThk ?? 12,
+    judgeLinePos: o.judgeLinePos ?? (8 / 9),
     // The game scene supplies how its idle frame is drawn.
     redrawIdle: o.redrawIdle || function () {},
   };

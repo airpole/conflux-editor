@@ -45,6 +45,8 @@ export const DEFAULT_SETTINGS = {
   hitEffect: true,
   frameCap: 0,           // 0 = uncapped (follows display); 30/60 = cap
   noteThickness: 15,     // was ES.nThk
+  judgeLinePos: 8 / 9,   // judgment-line vertical position as a fraction of the
+                         // playfield height (0 = top, 1 = bottom). Default 8/9.
   showCombo: true,
   showJudgment: true,
   showFastSlow: true,
@@ -134,6 +136,7 @@ export function applySettings(deps) {
     d.ES.pvSpd = s.hiSpeed;
     d.ES.nThk = s.noteThickness;
     d.ES.hitVol = s.volEffect;      // legacy field still read by play.js hit path
+    d.ES.judgeLinePos = s.judgeLinePos;  // read by game-render/play-render for jY
   }
 
   // Note skin (renderer module state).

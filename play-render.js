@@ -158,7 +158,7 @@ export function textVH(ctx, text) {
 
 export function drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, opts) {
   const cx_ = gx + gw / 2;
-  const jY = gy + gh * (8 / 9);
+  const jY = gy + gh * (CTX.judgeLinePos ?? (8 / 9));
   const cell = gw / 16;
   const botTop = jY;
   const botBot = gy + gh;
