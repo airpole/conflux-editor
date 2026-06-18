@@ -132,10 +132,18 @@ function finalizePlay(forceEnded) {
 
 /**
  * Start a play session.
- * @param {boolean} fromBeginning  true = restart from lead-in; false = from sharedMs
+ * @param {boolean} fromBeginning  true = restart from the top (3s lead-in);
+ *                                 false = resume from sharedMs
  * @param {boolean} autoplay       true = auto-SYNC; false = manual key input
+ * @param {boolean} leadIn         resume only: true = 3s silent run-up before
+ *                                 sharedMs (game pause→resume); false = start
+ *                                 immediately at sharedMs (editor — no wait).
+ *                                 Ignored when fromBeginning (the top always
+ *                                 has its own lead-in). Defaults false so the
+ *                                 editor's play/pause never stalls; the game
+ *                                 scene (C3) passes true on resume.
  */
-export function startPlay(fromBeginning, autoplay) {
+export function startPlay(fromBeginning, autoplay, leadIn = false) {
   initAud();
   // Phase: AudioContext.resume() is async — on Samsung Internet (and Safari)
   // a freshly-created context can sit in 'suspended' for a frame or two
@@ -145,11 +153,11 @@ export function startPlay(fromBeginning, autoplay) {
   // performance.now() (used for curMs) and the audio drift apart for the
   // first 50-200ms. If suspended, defer the rest of startup until resumed.
   if (AS.actx && AS.actx.state === 'suspended') {
-    AS.actx.resume().then(() => _startPlayImpl(fromBeginning, autoplay))
-                    .catch(() => _startPlayImpl(fromBeginning, autoplay));
+    AS.actx.resume().then(() => _startPlayImpl(fromBeginning, autoplay, leadIn))
+                    .catch(() => _startPlayImpl(fromBeginning, autoplay, leadIn));
     return;
   }
-  _startPlayImpl(fromBeginning, autoplay);
+  _startPlayImpl(fromBeginning, autoplay, leadIn);
 }
 
 /**
@@ -168,7 +176,7 @@ export function buildLineMap() {
   }
 }
 
-function _startPlayImpl(fromBeginning, autoplay) {
+function _startPlayImpl(fromBeginning, autoplay, leadIn = false) {
   // Phase: re-read the Auto checkbox at session start. The change-event
   // handler in main.js writes PS.playAutoplay, but on the very first toggle
   // after page load there are edge cases (rapid label-click double-fires,
@@ -178,14 +186,17 @@ function _startPlayImpl(fromBeginning, autoplay) {
   const autoChkEl = $('playAutoChk');
   if (autoChkEl) PS.playAutoplay = !!autoChkEl.checked;
 
-  // Start position. From-beginning: clock + judgment both begin at -LEAD_IN_MS
-  // (a silent run-up before tick 0). From-current (resume): the clock and audio
-  // begin LEAD_IN_MS *before* the resume point so there's a 3s visual run-up
-  // (shape keeps moving) with no playable notes, but judgment/scheduling anchor
-  // at the resume point itself — every note before it is pre-credited by
-  // seedPlayStateFromCurMs, so nothing in the lead-in window is judged.
+  // Start position. From-beginning always gets a silent run-up before tick 0.
+  // On RESUME, a lead-in is applied only when requested (game pause→resume):
+  // the clock + audio begin LEAD_IN_MS before the resume point for a 3s run-up
+  // (shape moves, no playable notes), while judgment/scheduling anchor at the
+  // resume point. The editor's play/pause passes leadIn=false, so clock and
+  // anchor coincide (clockMs === anchorMs) — instant start at sharedMs, no
+  // run-up gap and therefore no stray/unjudged notes in front of the cursor.
+  const useLeadIn = fromBeginning || leadIn;
   const anchorMs = fromBeginning ? -LEAD_IN_MS : ES.sharedMs;
-  const clockMs  = fromBeginning ? -LEAD_IN_MS : (ES.sharedMs - LEAD_IN_MS);
+  const clockMs  = fromBeginning ? -LEAD_IN_MS
+                 : (useLeadIn ? (ES.sharedMs - LEAD_IN_MS) : ES.sharedMs);
   PS.playOffMs = clockMs;
   PS.playActive = true;
   PS.playStartedFromBeginning = !!fromBeginning;
@@ -232,15 +243,19 @@ function _startPlayImpl(fromBeginning, autoplay) {
     rszActiveCanvas();
   }
 
-  if (!fromBeginning) {
-    // Audio begins when the clock reaches the resume point (anchorMs), started
-    // by playLoop's lead-in gate — NOT here. Starting it now would play music
-    // during the silent run-up (startAud clamps negative seeks to 0, desyncing
-    // audio from the clock). Defer so the 3s lead-in stays silent and in-sync.
-    PS.playAudioStarted = false;
-  }
+  PS.playAudioStarted = false;
   // Where the music should begin (song-ms): 0 from the top, else the resume pt.
   PS.playAudioStartMs = fromBeginning ? 0 : anchorMs;
+  if (!fromBeginning && !useLeadIn) {
+    // Editor resume with no run-up: clock starts exactly at sharedMs, so audio
+    // starts now (the original instant-resume behavior). When a run-up IS used
+    // (from-beginning, or game resume), audio is deferred to playLoop's lead-in
+    // gate — starting it now would clamp a negative seek to 0 and desync.
+    if (PS.playAudioStartMs >= 0) {
+      startAud(PS.playAudioStartMs + D.metadata.offset);
+      PS.playAudioStarted = true;
+    }
+  }
   PS.playT0 = performance.now();
   PS.playRAF = requestAnimationFrame(playLoop);
 }
