@@ -39,7 +39,7 @@ export const INVALID_COLOR = '#ff3040'; // Red for Line 1/4 overlap warning (Pha
 export const GDIVS = [1,2,3,4,6,8,12,16,24,32,48,64];
 
 // ---- Lead-in ----
-export const LEAD_IN_MS = 2000;
+export const LEAD_IN_MS = 3000;
 // Lead-in for mid-chart starts (Space): the session begins this many ms
 // before the selected position, showing empty scrolling shapes so the player
 // can sync up before the first live note arrives. Audio starts at the

@@ -14,7 +14,7 @@
 import { $, sPosSnapVals } from './constants.js';
 import { D } from './state.js';
 import { ES } from './editor-state.js';
-import { snap, snapPos, posToExtStr, toast } from './utility.js';
+import { snap, snapPos, toast } from './utility.js';
 import { getMinTick } from './timing.js';
 import { sp2f, getShape, getLines, normalizeShapeChain,
          invalidateShapeCache,
@@ -354,22 +354,10 @@ export function handleSTap(e) {
     }
     if (best >= 0 && bd < 35) {
       const ev = D.shapeEvents[best];
-      if (ev.easing === null) {
-        const curExt = posToExtStr(ev.targetPos);
-        const val = prompt(`Move init ${!ev.isBlue ? 'R' : 'L'} position (-8~8):`, curExt);
-        if (val !== null && !isNaN(+val)) {
-          const newPos = Math.max(0, Math.min(64, Math.round((+val + 8) * 4)));
-          if (newPos !== ev.targetPos) {
-            dispatch(MutateShapeEvents(
-              [ev],
-              [{ targetPos: ev.targetPos }],
-              [{ targetPos: newPos }]
-            ));
-          }
-          toast(`Init ${!ev.isBlue ? 'R' : 'L'} → ${posToExtStr(newPos)}`);
-        }
-        return;
-      }
+      // Init points (easing === null) are the chain's anchor and cannot be
+      // deleted. The del tool ignores them entirely — no prompt, no toast.
+      // (Position is edited by dragging the point, not via the del tool.)
+      if (ev.easing === null) return;
       ES.selectedShapeEvts.delete(ev);
       dispatch(DeleteShapeEvents([ev]));
       toast('Shape event deleted');

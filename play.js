@@ -23,10 +23,11 @@ import { toast } from './utility.js';
 function playLoop(ts) {
   if (!PS.playActive) return;
   const curMs = PS.playOffMs + (ts - PS.playT0) * AS.playbackRate;
-  // Lead-in: start audio when curMs crosses 0
-  if (!PS.playAudioStarted && curMs >= 0) {
+  // Lead-in: start audio when the clock reaches the music start point
+  // (0 from the top, or the resume point). Until then the run-up is silent.
+  if (!PS.playAudioStarted && curMs >= PS.playAudioStartMs) {
     PS.playAudioStarted = true;
-    startAud(D.metadata.offset);
+    startAud(PS.playAudioStartMs + D.metadata.offset);
     // Rebind the hit scheduler at the exact moment audio comes online.
     // resetHitScheduler in startPlay was based on the negative lead-in
     // timestamp; by the time PS.playAudioStarted flips to true, the loop
@@ -177,8 +178,15 @@ function _startPlayImpl(fromBeginning, autoplay) {
   const autoChkEl = $('playAutoChk');
   if (autoChkEl) PS.playAutoplay = !!autoChkEl.checked;
 
-  const offMs = fromBeginning ? -LEAD_IN_MS : ES.sharedMs;
-  PS.playOffMs = offMs;
+  // Start position. From-beginning: clock + judgment both begin at -LEAD_IN_MS
+  // (a silent run-up before tick 0). From-current (resume): the clock and audio
+  // begin LEAD_IN_MS *before* the resume point so there's a 3s visual run-up
+  // (shape keeps moving) with no playable notes, but judgment/scheduling anchor
+  // at the resume point itself — every note before it is pre-credited by
+  // seedPlayStateFromCurMs, so nothing in the lead-in window is judged.
+  const anchorMs = fromBeginning ? -LEAD_IN_MS : ES.sharedMs;
+  const clockMs  = fromBeginning ? -LEAD_IN_MS : (ES.sharedMs - LEAD_IN_MS);
+  PS.playOffMs = clockMs;
   PS.playActive = true;
   PS.playStartedFromBeginning = !!fromBeginning;
   // New session: clear the slow-rate flag. Record eligibility is recomputed at
@@ -204,11 +212,13 @@ function _startPlayImpl(fromBeginning, autoplay) {
   // Gauge / clear-mark lock + Fast-Slow counters reset for the new session.
   resetGauge();
 
-  seedPlayStateFromCurMs(offMs);
+  // Seed already-played notes + arm schedulers at the ANCHOR (resume point),
+  // not the clock start — the lead-in window must contain no judgable notes.
+  seedPlayStateFromCurMs(anchorMs);
 
-  resetMissChecker(offMs);
-  resetHitScheduler(offMs);
-  resetAutoJudger(offMs);
+  resetMissChecker(anchorMs);
+  resetHitScheduler(anchorMs);
+  resetAutoJudger(anchorMs);
 
   $('playBtn').textContent = '⏸';
 
@@ -223,9 +233,14 @@ function _startPlayImpl(fromBeginning, autoplay) {
   }
 
   if (!fromBeginning) {
-    startAud(offMs + D.metadata.offset);
-    PS.playAudioStarted = true;
+    // Audio begins when the clock reaches the resume point (anchorMs), started
+    // by playLoop's lead-in gate — NOT here. Starting it now would play music
+    // during the silent run-up (startAud clamps negative seeks to 0, desyncing
+    // audio from the clock). Defer so the 3s lead-in stays silent and in-sync.
+    PS.playAudioStarted = false;
   }
+  // Where the music should begin (song-ms): 0 from the top, else the resume pt.
+  PS.playAudioStartMs = fromBeginning ? 0 : anchorMs;
   PS.playT0 = performance.now();
   PS.playRAF = requestAnimationFrame(playLoop);
 }
@@ -329,6 +344,7 @@ export function playSeekTo(v) {
     PS.playAudioStarted = true;
   } else {
     PS.playAudioStarted = false;
+    PS.playAudioStartMs = 0;   // music begins at song start once clock reaches 0
   }
 }
 

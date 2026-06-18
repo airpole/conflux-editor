@@ -215,10 +215,13 @@ export function computeResult(forceEnded) {
     cleared, failed: !!forceEnded || (!cleared && !forceEnded ? (PS.gaugeType === 'normal') : false),
     forceEnded: !!forceEnded,
     // Record eligibility: a run may write the saved best ONLY if it was played
-    // from the beginning, never slowed below 1.0×, and not autoplay. Practice-
-    // style sessions still get a Result screen but must not touch the best.
+    // from the beginning and not autoplay. Playback-rate (배속) does NOT gate
+    // records — slowing the music down to inspect a chart in the editor should
+    // still record, and the game never exposes pitch-shifting rate control. The
+    // PS.playUsedSlowRate flag is still tracked (set in audio.js) so a future
+    // in-game slow-practice mode can re-add `&& !PS.playUsedSlowRate` here.
     recordEligible:
-      !!PS.playStartedFromBeginning && !PS.playUsedSlowRate && !PS.playAutoplay,
+      !!PS.playStartedFromBeginning && !PS.playAutoplay,
     options: {
       gaugeType: PS.gaugeType,
       lockTarget: PS.lockTarget,

@@ -223,7 +223,9 @@ export function run() {
   }
 
   // ── GG12: record-eligibility gate ─────────────────────────────────────────
-  // A best record may be written only for a full, full-speed, manual run.
+  // A best record may be written only for a full, manual run from the start.
+  // Playback rate (배속) does NOT gate eligibility (the flag is still tracked
+  // for a future in-game slow mode, but slowing in the editor still records).
   function eligibility({ fromBeginning, usedSlowRate, autoplay }) {
     const notes = [tap(1, 0)];
     setChart(notes); gaugeSession();
@@ -237,10 +239,10 @@ export function run() {
     'GG12 full manual run from start → eligible');
   ok(eligibility({ fromBeginning: false, usedSlowRate: false, autoplay: false }) === false,
     'GG12 mid-chart start → NOT eligible');
-  ok(eligibility({ fromBeginning: true,  usedSlowRate: true,  autoplay: false }) === false,
-    'GG12 slowed below 1.0× → NOT eligible');
+  ok(eligibility({ fromBeginning: true,  usedSlowRate: true,  autoplay: false }) === true,
+    'GG12 slowed playback rate → STILL eligible (배속 does not gate)');
   ok(eligibility({ fromBeginning: true,  usedSlowRate: false, autoplay: true  }) === false,
     'GG12 autoplay → NOT eligible');
   ok(eligibility({ fromBeginning: false, usedSlowRate: true,  autoplay: true  }) === false,
-    'GG12 multiple disqualifiers → NOT eligible');
+    'GG12 mid-start + autoplay → NOT eligible (start & autoplay still gate)');
 }

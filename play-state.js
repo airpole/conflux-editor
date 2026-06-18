@@ -34,6 +34,7 @@ export const PS = {
   playT0: 0,
   playOffMs: 0,
   playAudioStarted: false,
+  playAudioStartMs: 0,     // song-ms at which music begins (0 from top, resume pt on resume)
 
   playHitMap: new Map(),
   playMissSet: new Set(),
