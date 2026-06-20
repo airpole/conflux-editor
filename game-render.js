@@ -32,7 +32,7 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
 
   const curTk = ms2t(curMs);
   const visMs = 2000 / ES.pvSpd;
-  const jY = gy + gh * (ES.judgeLinePos ?? (8 / 9));
+  const jY = gy + gh * Math.min(8 / 9, ES.judgeLinePos ?? (8 / 9));
   const topMs = curMs + visMs, botMs = curMs - visMs * 0.15;
   const _mir = PS.mirrorShape;
   const p2x = p => _mir ? gx + (1 - sp2f(p)) * gw : gx + sp2f(p) * gw;
@@ -113,39 +113,18 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     if (wAlpha !== 1) ctx.globalAlpha = 1;
   }
 
-  // Inner line dividers. At a step tick the boundary jumps instantly, so the
-  // divider x jumps too; drawing it as one continuous polyline would link the
-  // pre- and post-jump x with a stray horizontal segment. Instead we BREAK the
-  // path at each step (moveTo, not lineTo) so each side renders on its own with
-  // no horizontal connector — e.g. a divider at x=5 then x=7.5 shows two
-  // separate verticals, not a 5→7.5 bridge. Steps are detected by a stepTick
-  // lying between two consecutive sample ticks (buildShapePointArrays emits an
-  // ε-pair straddling each step tick).
-  const stepBetween = (a, b) => {
-    for (const stk of stepTicks) {
-      const lo = Math.min(a, b), hi = Math.max(a, b);
-      if (stk > lo && stk < hi) return true;
-    }
-    return false;
-  };
+  // Inner line dividers (continuous polyline following the boundary).
   for (let ln = 0; ln < 3; ln++) {
     ctx.strokeStyle = '#ffffff22'; ctx.lineWidth = 1.5;
     ctx.beginPath();
-    let fi = true, prevTk = null;
+    let fi = true;
     for (const pt of lP) {
       const tk = pt.tk;
       const info = getTkInfo(tk); const sh = info.sh, lines = info.lines;
       const lx = p2x(sh.left), rx = p2x(sh.right), sw = rx - lx;
       let cum = 0; for (let k = 0; k <= ln; k++) cum += lines[k] / 100;
       const dx = lx + cum * sw;
-      // Start a fresh sub-path at the first point, or whenever a step tick sits
-      // between this point and the previous one (break the horizontal link).
-      if (fi || (prevTk !== null && stepBetween(prevTk, tk))) {
-        ctx.moveTo(dx, pt.y); fi = false;
-      } else {
-        ctx.lineTo(dx, pt.y);
-      }
-      prevTk = tk;
+      if (fi) { ctx.moveTo(dx, pt.y); fi = false; } else ctx.lineTo(dx, pt.y);
     }
     ctx.stroke();
   }
@@ -202,6 +181,27 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
         ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.moveTo(mlx, my); ctx.lineTo(mrx, my); ctx.stroke();
       }
+    }
+  }
+
+  // Step lines — at each step tick the playfield shape jumps instantly, so we
+  // draw a horizontal marker (like a measure line) spanning the boundary there.
+  // This makes the jump legible as a discrete event instead of trying to break
+  // the continuous dividers. Drawn after measure lines so it sits on top, in a
+  // distinct sky-blue tint to read as "shape step" rather than "measure".
+  if (!_static) {
+    for (const stk of stepTicks) {
+      if (stk < botTk - 1 || stk > topTk + 1) continue;
+      const sy = tk2y(stk);
+      if (sy < gy - 2 || sy > gy + gh + 2) continue;
+      // Span the union of the pre- and post-jump boundaries so the line covers
+      // the full width across the instant the shape moves.
+      const before = getTkInfo(stk - 0.0001).sh;
+      const after  = getTkInfo(stk + 0.0001).sh;
+      const sx0 = Math.min(p2x(before.left),  p2x(after.left));
+      const sx1 = Math.max(p2x(before.right), p2x(after.right));
+      ctx.strokeStyle = '#7ad6ff66'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(sx0, sy); ctx.lineTo(sx1, sy); ctx.stroke();
     }
   }
 

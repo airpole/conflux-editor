@@ -158,9 +158,15 @@ export function textVH(ctx, text) {
 
 export function drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, opts) {
   const cx_ = gx + gw / 2;
-  const jY = gy + gh * (CTX.judgeLinePos ?? (8 / 9));
+  const JDEF = 8 / 9;                                  // default judgment-line fraction
+  const frac = Math.min(JDEF, CTX.judgeLinePos ?? JDEF); // never below default (raise-only)
+  const jY = gy + gh * frac;
+  // Bottom strip (title/artist/score) is ALWAYS laid out in the default band
+  // [jYDefault → playfield bottom], so raising the judgment line never stretches
+  // or breaks it — the strip stays put while the line + combo block move up.
+  const jYDefault = gy + gh * JDEF;
   const cell = gw / 16;
-  const botTop = jY;
+  const botTop = jYDefault;
   const botBot = gy + gh;
   const botH = botBot - botTop;
   const G = gw * 0.008;
@@ -195,7 +201,10 @@ export function drawUnifiedHUD(ctx, gx, gy, gw, gh, curMs, opts) {
   const cntSz   = Math.round(gw * 0.014);    // 원래대로
   const pctSz   = Math.round(gw * 0.01625);  // 원래(0.013)에서 25% 키움
 
-  const comboY = gy + gh * 0.22;
+  // Combo/judgment/counter/percent block floats a fixed distance ABOVE the
+  // judgment line, so when the line is raised the whole block rises with it,
+  // preserving the default spacing (at default frac this equals gy + gh*0.22).
+  const comboY = jY - gh * (JDEF - 0.22);
   const judgeY = comboY + comboSz / 2 + G + judgeSz / 2;
   const cntY   = judgeY + judgeSz / 2 + G + cntSz / 2;
   const pctY   = cntY + cntSz / 2 + G + pctSz / 2;

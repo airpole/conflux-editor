@@ -46,7 +46,10 @@ export const DEFAULT_SETTINGS = {
   frameCap: 0,           // 0 = uncapped (follows display); 30/60 = cap
   noteThickness: 15,     // was ES.nThk
   judgeLinePos: 8 / 9,   // judgment-line vertical position as a fraction of the
-                         // playfield height (0 = top, 1 = bottom). Default 8/9.
+                         // playfield height. 8/9 = default (the lowest allowed
+                         // position); lower raises the line. The bottom HUD
+                         // strip stays anchored to the default band regardless,
+                         // so only the line + combo block move up.
   showCombo: true,
   showJudgment: true,
   showFastSlow: true,

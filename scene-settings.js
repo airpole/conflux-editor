@@ -148,7 +148,7 @@ function tabVisual(s) {
     ${rowSeg('noteSkin', 'Note Skin', '노트 스킨 — 일반 노트만 (Wide 제외)', [{v:'bar',t:'BAR'},{v:'circle',t:'CIRCLE'}], s.noteSkin)}
     ${rowRange('noteThickness', 'Note Thickness', '노트 두께', 6, 24, 1, s.noteThickness, v => `${v}`)}
     ${rowRange('laneOpacity', 'Lane Opacity', '레인 투명도', 0.2, 1, 0.05, s.laneOpacity, v => Math.round(v*100)+'%')}
-    ${rowRange('judgeLinePos', 'Judgment Line', '판정선 위치 (위↑ ~ 아래↓)', 0.5, 0.95, 0.01, s.judgeLinePos, v => Math.round(v*100)+'%')}
+    ${rowRange('judgeLinePos', 'Judgment Line', '판정선 높이 (오른쪽=기본, 왼쪽=위로)', 0.5, 0.8889, 0.0111, s.judgeLinePos, v => Math.round(v / (8/9) * 100) + '%')}
     ${rowRange('bgBrightness', 'Background', '배경 밝기', 0, 100, 5, s.bgBrightness, v => `${v}%`)}
     ${rowRange('sudden', 'Sudden', '위쪽 레인 가림', 0, 90, 5, s.sudden, v => `${v}%`)}
     ${rowRange('hidden', 'Hidden', '아래쪽 레인 가림', 0, 90, 5, s.hidden, v => `${v}%`)}
@@ -222,7 +222,8 @@ function wireBody(host) {
   });
   // Format a slider's value label for a given key.
   const fmtVal = (key, val) => {
-    if (key.startsWith('vol') || key === 'laneOpacity' || key === 'judgeLinePos') return Math.round(val*100)+'%';
+    if (key.startsWith('vol') || key === 'laneOpacity') return Math.round(val*100)+'%';
+    if (key === 'judgeLinePos') return Math.round(val / (8/9) * 100) + '%';
     if (key === 'hiSpeed') return (+val).toFixed(1);
     if (key === 'bgBrightness' || key === 'sudden' || key === 'hidden') return val+'%';
     if (key === 'audioOffset' || key === 'visualOffset') return `${val>0?'+':''}${val}ms`;
