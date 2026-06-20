@@ -136,9 +136,6 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
   // RENDER slot CHL[channel] so the beam sits exactly under the notes — p2x
   // (_mir) then mirrors beam and notes together. Gated to live sessions.
   if (opts.gauge && PS.playKeyHeld && PS.playKeyHeld.size) {
-    const beamInfo = getTkInfo(curTk);
-    const bsh = beamInfo.sh, blines = beamInfo.lines;
-    const blx = p2x(bsh.left), brx = p2x(bsh.right), bsw = brx - blx;
     // Held keys → judged lines → render slots (CHL of the matching channels).
     const heldLines = new Set();
     for (const ch of PS.playKeyHeld) { const ln = KEY2LINE[ch]; if (ln) heldLines.add(ln); }
@@ -148,16 +145,45 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
       if (heldLines.has(mapped)) slots.add(CHL[channel]);
     }
     const beamTop = gy + gh * 0.30;        // beams fade in from ~1/3 down
+    // The beam follows the lane's curved boundary up the field (not a straight
+    // rect): we walk the boundary sample points (lP) within [beamTop, jY] and
+    // build a polygon from the slot's left edge down and its right edge back up,
+    // so when the shape moves the lit lane moves with it. A vertical gradient
+    // fades the glow in from beamTop to the bright judgment-line edge.
+    const slotEdges = (tk, slot) => {
+      const info = getTkInfo(tk); const sh = info.sh, lines = info.lines;
+      const lx = p2x(sh.left), rx = p2x(sh.right), sw = rx - lx;
+      let cum = 0; for (let k = 0; k < slot; k++) cum += lines[k] / 100;
+      const xL = lx + cum * sw;
+      const xR = lx + (cum + lines[slot] / 100) * sw;
+      return [xL, xR];
+    };
+    // Sample ticks spanning the beam band, in y order (lP is top→bottom).
+    const band = lP.filter(pt => pt.y >= beamTop - 1 && pt.y <= jY + 1);
     for (const slot of slots) {
-      let cum = 0; for (let k = 0; k < slot; k++) cum += blines[k] / 100;
-      const x0 = blx + cum * bsw;
-      const x1 = blx + (cum + blines[slot] / 100) * bsw;
-      const lo = Math.min(x0, x1), w = Math.abs(x1 - x0);
-      const g = ctx.createLinearGradient(0, beamTop, 0, jY);
-      g.addColorStop(0, 'rgba(120,200,255,0)');
-      g.addColorStop(1, 'rgba(120,200,255,0.22)');
-      ctx.fillStyle = g;
-      ctx.fillRect(lo, beamTop, w, jY - beamTop);
+      if (band.length >= 2) {
+        const g = ctx.createLinearGradient(0, beamTop, 0, jY);
+        g.addColorStop(0, 'rgba(120,200,255,0)');
+        g.addColorStop(1, 'rgba(120,200,255,0.22)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        // Left edge top→bottom.
+        for (let i = 0; i < band.length; i++) {
+          const [xL] = slotEdges(band[i].tk, slot);
+          const y = Math.max(beamTop, Math.min(jY, band[i].y));
+          if (i === 0) ctx.moveTo(xL, y); else ctx.lineTo(xL, y);
+        }
+        // Right edge bottom→top.
+        for (let i = band.length - 1; i >= 0; i--) {
+          const [, xR] = slotEdges(band[i].tk, slot);
+          const y = Math.max(beamTop, Math.min(jY, band[i].y));
+          ctx.lineTo(xR, y);
+        }
+        ctx.closePath(); ctx.fill();
+      }
+      // Bright cap right at the judgment line (uses the current-tick edges).
+      const [cL, cR] = slotEdges(curTk, slot);
+      const lo = Math.min(cL, cR), w = Math.abs(cR - cL);
       ctx.fillStyle = 'rgba(150,215,255,0.40)';
       ctx.fillRect(lo, jY - 10, w, 10);
     }
@@ -436,18 +462,23 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     const above = h.above !== false;
 
     let cx, baseR;
+    // Effect SIZE is decoupled from the (possibly collapsed) shape width so the
+    // ripple stays visible even when the playfield narrows to a line. We size it
+    // from the overall field width gw (a stable reference), not the per-lane
+    // width. Effect POSITION still follows the lane center, so it's clear which
+    // lane was hit. (Fixes: narrow shape → lineW→0 → invisible effect.)
+    const FIXED_R = gw * 0.045;     // shape-independent ripple radius
     if (h.isWide) {
       let cum2 = 0; for (let k = 0; k < 1; k++) cum2 += lines[k] / 100;
       let cum3end = 0; for (let k = 0; k < 3; k++) cum3end += lines[k] / 100;
       cx = lx + ((cum2 + cum3end) / 2) * sw;
-      baseR = Math.abs(sw) * (1.25 / 8);
+      baseR = FIXED_R * 1.6;        // wide spans more lanes → a larger ripple
     } else {
       const li = CHL[h.channel];   // p2x(_mir) mirrors; no lineMap here (see note pass)
       let cum = 0;
       for (let k = 0; k < li; k++) cum += lines[k] / 100;
-      const lineW = (lines[li] / 100) * sw;
       cx = lx + (cum + lines[li] / 200) * sw;
-      baseR = Math.min(Math.abs(sw) * (0.9 / 8), Math.abs(lineW) / 2);
+      baseR = FIXED_R;
     }
     const dir = h.isWide ? true : above;
 

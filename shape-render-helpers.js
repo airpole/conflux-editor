@@ -202,11 +202,11 @@ export const STYLE_SHAPE_EDITOR_STEP = {
 /** drawGameFrame-style: subtle white boundaries, normalized. */
 export const STYLE_GAME = {
   fill: '#121212',
-  leftStroke: '#ffffff44',
-  rightStroke: '#ffffff44',
-  lineWidth: 1.5,
-  gapStroke: '#ffffff66',
-  gapWidth: 1.5,
+  leftStroke: '#ffffff88',
+  rightStroke: '#ffffff88',
+  lineWidth: 3,
+  gapStroke: '#ffffffaa',
+  gapWidth: 3,
 };
 
 /** drawGameFrame step-connector style (more visible). */
