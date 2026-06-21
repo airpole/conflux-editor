@@ -378,6 +378,21 @@ export function drawGameFrame(ctx, gx, gy, gw, gh, curMs, opts) {
     ctx.globalAlpha = 1;
   }
 
+  // Sudden — opaque lane cover from the top of the note field. Hides notes in
+  // the upper `sudden%` of the field [gy → jY] so they appear abruptly partway
+  // down (a difficulty/practice aid). Drawn AFTER notes (so it hides them) but
+  // BEFORE the judgment line / gauge / effects (which stay visible). The
+  // Visible-Time readout in Settings already accounts for this reduced window.
+  // Only in a live session (opts.gauge present); not in the editor preview.
+  {
+    const sud = opts.gauge ? (PS.sudden || 0) : 0;
+    if (sud > 0) {
+      const coverH = (jY - gy) * Math.min(0.95, sud / 100);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(gx, gy, gw, coverH);
+    }
+  }
+
   // Judgment line — doubles as the life-gauge bar during a live session.
   // opts.gauge = {value: 0..100, type: 'normal'|'hard'} when playing; absent
   // in editor/idle previews, where we draw the plain white line instead.

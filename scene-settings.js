@@ -9,9 +9,9 @@
 // Stage 4 scope — controls that touch no judgment/timing code are LIVE:
 //   noteSkin, showCombo/showJudgment/showFastSlow, hitEffect, frameCap,
 //   noteThickness, laneOpacity, bgBrightness, volumes, gauge ladder,
-//   autoplay/noFail, keybindings (link to existing config).
+//   autoplay, keybindings (link to existing config).
 // Placeholder (disabled, wired in later stages):
-//   hiSpeed fine/CMOD, showFallMs, sudden/hidden  (Stage 5)
+//   hiSpeed fine / CMOD  (deferred)
 //   mirror, staticShape                                       (Stage 6)
 
 import { goBack } from './scene-manager.js';
@@ -85,11 +85,11 @@ function injectCSS() {
 }
 
 // Visible fall time (ms): base = 2000/hiSpeed (top of field → judgment line),
-// reduced by Sudden/Hidden which cover part of the field. Mirrors game-render's
-// visMs and the cover fractions, so the readout matches what's actually seen.
+// reduced by Sudden which covers the top part of the field. Mirrors
+// game-render's visMs and the cover fraction so the readout matches what's seen.
 function visibleTimeMs(s) {
   const base = 2000 / (s.hiSpeed || 3);
-  const covered = Math.min(0.95, (s.sudden || 0) / 100 + (s.hidden || 0) / 100);
+  const covered = Math.min(0.95, (s.sudden || 0) / 100);
   return Math.round(base * (1 - covered));
 }
 
@@ -150,8 +150,7 @@ function tabVisual(s) {
     ${rowRange('laneOpacity', 'Lane Opacity', '레인 투명도', 0.2, 1, 0.05, s.laneOpacity, v => Math.round(v*100)+'%')}
     ${rowRange('judgeLinePos', 'Judgment Line', '판정선 높이 (오른쪽=기본, 왼쪽=위로)', 0.5, 0.8889, 0.0111, s.judgeLinePos, v => Math.round(v / (8/9) * 100) + '%')}
     ${rowRange('bgBrightness', 'Background', '배경 밝기', 0, 100, 5, s.bgBrightness, v => `${v}%`)}
-    ${rowRange('sudden', 'Sudden', '위쪽 레인 가림', 0, 90, 5, s.sudden, v => `${v}%`)}
-    ${rowRange('hidden', 'Hidden', '아래쪽 레인 가림', 0, 90, 5, s.hidden, v => `${v}%`)}
+    ${rowRange('sudden', 'Sudden', '위쪽 레인 가림 (불투명)', 0, 90, 5, s.sudden, v => `${v}%`)}
     ${rowToggle('hitEffect', 'Hit Effect', '히트 이펙트', s.hitEffect)}
     ${rowSeg('frameCap', 'Frame Cap', '프레임 제한 — 고주사율은 자동 지원', [{v:'0',t:'AUTO'},{v:'60',t:'60'},{v:'30',t:'30'}], String(s.frameCap))}
     <div class="st-sec">Display</div>
@@ -189,7 +188,6 @@ function tabOption(s) {
     ${rowToggle('cmod', 'Constant (CMOD)', '등속 — BPM 변화 무시, 일정 속도', s.cmod, {disabled:true, soon:true})}
     ${rowToggle('autoplay', 'Autoplay', '자동 플레이', s.autoplay)}
     ${rowToggle('staticShape', 'Static Shape', 'Shape·라인을 시작값으로 고정 (노트 연습)', s.staticShape)}
-    ${rowToggle('noFail', 'No Fail', '게이지 0이어도 안 죽음', s.noFail)}
   `;
 }
 
@@ -225,7 +223,7 @@ function wireBody(host) {
     if (key.startsWith('vol') || key === 'laneOpacity') return Math.round(val*100)+'%';
     if (key === 'judgeLinePos') return Math.round(val / (8/9) * 100) + '%';
     if (key === 'hiSpeed') return (+val).toFixed(1);
-    if (key === 'bgBrightness' || key === 'sudden' || key === 'hidden') return val+'%';
+    if (key === 'bgBrightness' || key === 'sudden') return val+'%';
     if (key === 'audioOffset' || key === 'visualOffset') return `${val>0?'+':''}${val}ms`;
     return String(val);
   };
@@ -238,10 +236,10 @@ function wireBody(host) {
       const val = +r.value;
       if (lbl) lbl.textContent = fmtVal(key, val);
       setSetting(key, val, _deps);
-      // Fall-time depends on hiSpeed/sudden/hidden; refresh the readout if it's
-      // on screen (PLAY tab). sudden/hidden live on VISUAL, so this is a no-op
+      // Fall-time depends on hiSpeed/sudden; refresh the readout if it's
+      // on screen (PLAY tab). sudden lives on VISUAL, so this is a no-op
       // there — the value is recomputed when PLAY is next rendered anyway.
-      if (key === 'hiSpeed' || key === 'sudden' || key === 'hidden') {
+      if (key === 'hiSpeed' || key === 'sudden') {
         const fm = host.querySelector('#stVisibleMs');
         if (fm) fm.textContent = visibleTimeMs(getSettings()) + 'ms';
       }
@@ -252,7 +250,7 @@ function wireBody(host) {
       r.value = def;
       if (lbl) lbl.textContent = fmtVal(key, def);
       setSetting(key, def, _deps);
-      if (key === 'hiSpeed' || key === 'sudden' || key === 'hidden') {
+      if (key === 'hiSpeed' || key === 'sudden') {
         const fm = host.querySelector('#stVisibleMs');
         if (fm) fm.textContent = visibleTimeMs(getSettings()) + 'ms';
       }

@@ -10,11 +10,11 @@
 // Category layout (mirrors the Settings scene tabs):
 //   PLAY    — hiSpeed, audioOffset, visualOffset, showFallMs, (keybindings live in PS),
 //             volMaster / volMusic / volEffect
-//   VISUAL  — noteSkin, laneOpacity, bgBrightness, sudden, hidden,
+//   VISUAL  — noteSkin, laneOpacity, bgBrightness, judgeLinePos, sudden,
 //             hitEffect, frameCap, showCombo, showJudgment, showFastSlow
 //   GAUGE   — gauge (one of: cascade/as/ap/fc/hard/normal)
 //   OPTION  — mirror                    (recorded)
-//             cmod, autoplay, staticShape, noFail   (NOT recorded)
+//             cmod, autoplay, staticShape          (NOT recorded)
 //
 // Record policy: any "not recorded" option being active means the run's score
 // is not saved. isRecordingDisabled() centralises that test so adding a new
@@ -40,8 +40,7 @@ export const DEFAULT_SETTINGS = {
   noteSkin: 'bar',       // 'bar' | 'circle'  (normal notes only)
   laneOpacity: 1.0,      // 0..1
   bgBrightness: 100,     // 0..100 (mirrors D.metadata.jacketBrightness range)
-  sudden: 0,             // lane cover from top, 0..100 (Stage 5)
-  hidden: 0,             // lane cover from bottom, 0..100 (Stage 5)
+  sudden: 0,             // opaque lane cover from top, 0..90 (%)
   hitEffect: true,
   frameCap: 0,           // 0 = uncapped (follows display); 30/60 = cap
   noteThickness: 15,     // was ES.nThk
@@ -63,7 +62,6 @@ export const DEFAULT_SETTINGS = {
   cmod: false,           // constant scroll speed (ignores BPM changes)
   autoplay: false,
   staticShape: false,    // freeze shape to fixed -2/+2 (note practice)
-  noFail: false,
 };
 
 // ── State ────────────────────────────────────────────────────
@@ -123,7 +121,7 @@ export function gaugeToLock(gauge) {
 // flips this; add future no-record options to this single test.
 export function isRecordingDisabled() {
   const s = _settings;
-  return !!(s.autoplay || s.staticShape || s.noFail || s.cmod);
+  return !!(s.autoplay || s.staticShape || s.cmod);
 }
 
 // ── Apply to engine ──────────────────────────────────────────
@@ -155,7 +153,6 @@ export function applySettings(deps) {
     d.PS.playAutoplay = s.autoplay;
     d.PS.visualOffset = s.visualOffset;
     d.PS.sudden = s.sudden;
-    d.PS.hidden = s.hidden;
     d.PS.optMirror = s.mirror;
     d.PS.staticShape = s.staticShape;
   }

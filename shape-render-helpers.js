@@ -87,6 +87,21 @@ export function drawShapeBoundary(ctx, lP, rP, style) {
 
   ctx.lineWidth = style.lineWidth ?? 2;
 
+  // When both boundaries share the same stroke color (the game view: white on
+  // both sides), draw them as a SINGLE path/stroke. Canvas composites a single
+  // stroke once, so overlapping segments (shape collapsed to a line) don't
+  // double up their alpha — brightness stays identical whether the blue/red
+  // boundaries are spread apart or merged into one line. The editor keeps the
+  // two-color path below.
+  if (style.leftStroke && style.rightStroke && style.leftStroke === style.rightStroke) {
+    ctx.strokeStyle = style.leftStroke;
+    ctx.beginPath();
+    lP.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+    rP.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+    ctx.stroke();
+    return;
+  }
+
   // Left boundary
   if (style.leftStroke) {
     ctx.strokeStyle = style.leftStroke;
@@ -202,10 +217,15 @@ export const STYLE_SHAPE_EDITOR_STEP = {
 /** drawGameFrame-style: subtle white boundaries, normalized. */
 export const STYLE_GAME = {
   fill: '#121212',
-  leftStroke: '#ffffff88',
-  rightStroke: '#ffffff88',
+  // Boundary alpha is set to the value the two half-transparent strokes used to
+  // composite to when they OVERLAP (shape collapsed to a line): 0.53 over 0.53
+  // ≈ 0.78. Using that single opacity everywhere keeps the spread-out boundary
+  // (blue/red apart) as bright as the merged line, so brightness no longer
+  // changes with shape width. (#ffffffc8 = 200/255 ≈ 0.78)
+  leftStroke: '#ffffffc8',
+  rightStroke: '#ffffffc8',
   lineWidth: 3,
-  gapStroke: '#ffffffaa',
+  gapStroke: '#ffffffc8',
   gapWidth: 3,
 };
 

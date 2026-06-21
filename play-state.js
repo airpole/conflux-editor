@@ -71,6 +71,11 @@ export const PS = {
   // Set from Settings before a session; listed in the no-record option set.
   staticShape: false,
 
+  // Sudden — opaque lane cover from the top of the note field, as a percentage
+  // (0..90) of the field height. Render-only (game-render draws the cover).
+  // Set from Settings before/at session start via applySettings.
+  sudden: 0,
+
   playRAF: null,
   seekDragMs: null,
 
