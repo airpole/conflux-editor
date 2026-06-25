@@ -366,18 +366,20 @@ export function handleSTap(e) {
   }
 
   if (ES.sTool === 'L' || ES.sTool === 'R' || ES.sTool === 'C' || ES.sTool === 'P') {
-    const easing = $('easeS').value; const isR = ES.sTool === 'R';
+    const easing = $('easeS').value;
+    // L tool → Blue chain (isBlue=true), R tool → Red chain (isBlue=false).
+    const isBlue = ES.sTool === 'L';
 
     const shBefore = getShape(snp);
     const shapeCenterBefore = (shBefore.left + shBefore.right) / 2;
 
     if (easing === 'Arc' && ES.sTool !== 'C' && ES.sTool !== 'P') {
       cancelArc();
-      const autoEasing = resolveArcEasing(isR, snp);
-      const ops = [addShapeEvt(snp, snpPos, isR, autoEasing)];
+      const autoEasing = resolveArcEasing(isBlue, snp);
+      const ops = [addShapeEvt(snp, snpPos, isBlue, autoEasing)];
       if (ES.sMirror) {
         const mirPos = snapPos(Math.max(0, Math.min(64, 2 * shapeCenterBefore - snpPos)));
-        ops.push(addShapeEvt(snp, mirPos, !isR, autoEasing));
+        ops.push(addShapeEvt(snp, mirPos, !isBlue, autoEasing));
       }
       dispatch(ApplyShapeOps(ops));
       toast(`Arc: ${autoEasing === 'Out-Sine' ? 'OutS' : 'InS'}`);
@@ -389,10 +391,10 @@ export function handleSTap(e) {
     if (ES.sTool === 'P') {
       let easingL = $('easeS').value;
       let easingR = $('easeRS').value;
-      if (easingL === 'Arc') easingL = resolveArcEasing(false, snp);
-      if (easingR === 'Arc') easingR = resolveArcEasing(true, snp);
-      ops.push(addShapeEvt(snp, snpPos, false, easingL));
-      ops.push(addShapeEvt(snp, snpPos, true, easingR));
+      if (easingL === 'Arc') easingL = resolveArcEasing(true, snp);
+      if (easingR === 'Arc') easingR = resolveArcEasing(false, snp);
+      ops.push(addShapeEvt(snp, snpPos, true, easingL));
+      ops.push(addShapeEvt(snp, snpPos, false, easingR));
     } else if (ES.sTool === 'C') {
       let cEasing = easing;
       if (easing === 'Arc') {
@@ -407,13 +409,13 @@ export function handleSTap(e) {
       const newL = Math.max(0, Math.min(64 - curWidth,
         Math.round(rawL / sPosSnapVals[ES.sPosSnapLevel]) * sPosSnapVals[ES.sPosSnapLevel]));
       const newR = Math.round(Math.max(curWidth, Math.min(64, newL + curWidth)));
-      ops.push(addShapeEvt(snp, newL, false, cEasing));
-      ops.push(addShapeEvt(snp, newR, true, cEasing));
+      ops.push(addShapeEvt(snp, newL, true, cEasing));
+      ops.push(addShapeEvt(snp, newR, false, cEasing));
     } else {
-      ops.push(addShapeEvt(snp, snpPos, isR, easing));
+      ops.push(addShapeEvt(snp, snpPos, isBlue, easing));
       if (ES.sMirror) {
         const mirPos = snapPos(Math.max(0, Math.min(64, 2 * shapeCenterBefore - snpPos)));
-        ops.push(addShapeEvt(snp, mirPos, !isR, easing));
+        ops.push(addShapeEvt(snp, mirPos, !isBlue, easing));
       }
     }
     dispatch(ApplyShapeOps(ops));
